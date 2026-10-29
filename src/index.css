@@ -1,0 +1,320 @@
+:root {
+  --bg: #0f1115;
+  --panel: #161920;
+  --fg: #e6e8eb;
+  --fg-muted: #8b919c;
+  --border: #2a2e37;
+  --muted: #3a3f4b;
+  --accent: #7c9cff;
+  --highlight: #4fd8ff;
+
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--fg);
+  background: var(--bg);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Layout */
+.app {
+  height: 100%;
+}
+
+.app-panel {
+  overflow: auto;
+}
+
+.app-resize {
+  width: 4px;
+  padding: 0;
+  border: none;
+  background: var(--border);
+  cursor: col-resize;
+  transition: background 0.1s;
+}
+
+.app-resize:hover,
+.app-resize[data-focus],
+.app-resize[data-dragging] {
+  background: var(--accent);
+  outline: none;
+}
+
+/* Sidebar */
+.sidebar {
+  min-height: 100%;
+  background: var(--panel);
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-heading {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+/* NumberField */
+.number-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.number-field-control {
+  display: flex;
+  align-items: center;
+  width: 8rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.number-field-control:focus-within {
+  border-color: var(--accent);
+}
+
+.number-field-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.number-field-unit {
+  color: var(--fg-muted);
+  padding-right: 0.25rem;
+}
+
+.number-field-triggers {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+
+.number-field-trigger {
+  padding: 0 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.6rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.number-field-trigger:hover {
+  color: var(--fg);
+}
+
+/* Preview */
+.preview {
+  height: 100%;
+  padding: 1.5rem;
+}
+
+.preview-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.playfield {
+  fill: #1c2029;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.center-line {
+  stroke: var(--fg-muted);
+  stroke-width: 0.75;
+  stroke-dasharray: 4 4;
+  opacity: 0.4;
+}
+
+.flipper-pivot {
+  fill: #ffb86b;
+}
+
+.flipper {
+  fill: rgba(255, 184, 107, 0.15);
+  stroke: #ffb86b;
+  stroke-width: 1.5;
+}
+
+/* SelectField */
+.select-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.select-field-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.select-field-trigger:focus-visible,
+.select-field-trigger[data-state='open'] {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.select-field-indicator {
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+}
+
+.select-field-content {
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+
+.select-field-item {
+  padding: 0.35rem 0.5rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.select-field-item[data-highlighted] {
+  background: var(--muted);
+}
+
+.select-field-item[data-state='checked'] {
+  color: var(--accent);
+}
+
+.inlane-guide {
+  stroke: #6be3a4;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* Hover callouts */
+.is-dimmed {
+  opacity: 0.45;
+  transition: opacity 0.1s;
+}
+
+.highlight-shape {
+  fill: none;
+  stroke: var(--highlight);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.highlight-reference {
+  stroke: var(--highlight);
+  stroke-width: 1;
+  stroke-dasharray: 5 3;
+}
+
+.dim-line {
+  fill: none;
+  stroke: var(--highlight);
+  stroke-width: 1.25;
+}
+
+.dim-extension {
+  stroke: var(--highlight);
+  stroke-width: 0.75;
+  opacity: 0.7;
+}
+
+.dim-reference {
+  stroke-dasharray: 3 3;
+}
+
+.dim-arrowhead {
+  fill: var(--highlight);
+}
+
+.dim-label {
+  fill: var(--highlight);
+  font-size: 0.55px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 0.12px;
+  stroke-linejoin: round;
+}
+
+/* Sidebar tabs */
+.sidebar-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 0.65rem 1rem;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sidebar-tab:hover,
+.sidebar-tab[data-selected] {
+  color: var(--fg);
+}
+
+.sidebar-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Ark positions the indicator under the selected tab via CSS variables. */
+.sidebar-tab-indicator {
+  bottom: -1px;
+  width: var(--width);
+  height: 2px;
+  background: var(--accent);
+}
+
+.sidebar-tab-content:focus-visible {
+  outline: none;
+}
