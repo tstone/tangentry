@@ -269,24 +269,26 @@ function ViaPoints(props: { shot: Shot }) {
                 −
               </button>
             </div>
-            <NumberField
-              label="X"
-              unit="in"
-              min={0}
-              max={playfield.width}
-              step={0.125}
-              value={point.x}
-              onChange={(x) => moveVia(props.shot.id, point.id, { x })}
-            />
-            <NumberField
-              label="Y from bottom"
-              unit="in"
-              min={0}
-              max={playfield.height}
-              step={0.125}
-              value={point.y}
-              onChange={(y) => moveVia(props.shot.id, point.id, { y })}
-            />
+            <div class="field-pair">
+              <NumberField
+                label="X"
+                unit="in"
+                min={0}
+                max={playfield.width}
+                step={0.125}
+                value={point.x}
+                onChange={(x) => moveVia(props.shot.id, point.id, { x })}
+              />
+              <NumberField
+                label="Y"
+                unit="in"
+                min={0}
+                max={playfield.height}
+                step={0.125}
+                value={point.y}
+                onChange={(y) => moveVia(props.shot.id, point.id, { y })}
+              />
+            </div>
           </div>
         )}
       </For>
@@ -378,24 +380,26 @@ function ShotCard(props: { shot: Shot }) {
       </div>
       <Show when={selected()}>
         <h4 class="sidebar-heading">Entrance</h4>
-        <NumberField
-          label="X"
-          unit="in"
-          min={0}
-          max={playfield.width}
-          step={0.125}
-          value={props.shot.entrance.x}
-          onChange={(x) => setEntrance(props.shot.id, { x })}
-        />
-        <NumberField
-          label="Y from bottom"
-          unit="in"
-          min={0}
-          max={playfield.height}
-          step={0.125}
-          value={props.shot.entrance.y}
-          onChange={(y) => setEntrance(props.shot.id, { y })}
-        />
+        <div class="field-pair">
+          <NumberField
+            label="X"
+            unit="in"
+            min={0}
+            max={playfield.width}
+            step={0.125}
+            value={props.shot.entrance.x}
+            onChange={(x) => setEntrance(props.shot.id, { x })}
+          />
+          <NumberField
+            label="Y"
+            unit="in"
+            min={0}
+            max={playfield.height}
+            step={0.125}
+            value={props.shot.entrance.y}
+            onChange={(y) => setEntrance(props.shot.id, { y })}
+          />
+        </div>
         <NumberField
           label="Width"
           unit="in"
@@ -405,28 +409,31 @@ function ShotCard(props: { shot: Shot }) {
           value={props.shot.entranceWidth}
           onChange={(entranceWidth) => updateShot(props.shot.id, { entranceWidth })}
         />
+        <LaneShaping shot={props.shot} />
 
         <ViaPoints shot={props.shot} />
 
         <h4 class="sidebar-heading">Exit</h4>
-        <NumberField
-          label="X"
-          unit="in"
-          min={0}
-          max={playfield.width}
-          step={0.125}
-          value={props.shot.exit.x}
-          onChange={(x) => setExit(props.shot.id, { x })}
-        />
-        <NumberField
-          label="Y from bottom"
-          unit="in"
-          min={0}
-          max={playfield.height}
-          step={0.125}
-          value={props.shot.exit.y}
-          onChange={(y) => setExit(props.shot.id, { y })}
-        />
+        <div class="field-pair">
+          <NumberField
+            label="X"
+            unit="in"
+            min={0}
+            max={playfield.width}
+            step={0.125}
+            value={props.shot.exit.x}
+            onChange={(x) => setExit(props.shot.id, { x })}
+          />
+          <NumberField
+            label="Y"
+            unit="in"
+            min={0}
+            max={playfield.height}
+            step={0.125}
+            value={props.shot.exit.y}
+            onChange={(y) => setExit(props.shot.id, { y })}
+          />
+        </div>
         <NumberField
           label="Direction"
           unit="°"
@@ -478,9 +485,6 @@ function ShotCard(props: { shot: Shot }) {
           onChange={(exitWeight) => updateShot(props.shot.id, { exitWeight })}
         />
         <LaneNotes shot={props.shot} />
-
-        <h4 class="sidebar-heading">Lane shaping</h4>
-        <LaneShaping shot={props.shot} />
 
         <details class="wall-mounts">
           <summary class="sidebar-heading">

@@ -89,6 +89,23 @@ body {
   gap: 0.75rem;
 }
 
+/* Two short NumberFields side by side, e.g. X and Y. */
+.field-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.field-pair .number-field {
+  min-width: 0;
+}
+
+.field-pair .number-field-control {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
 /* Derived value shown under a field. */
 .field-note {
   margin: 0;
