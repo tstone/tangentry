@@ -1,6 +1,16 @@
+import { Show } from 'solid-js'
 import NumberField from './NumberField'
 import SelectField from './SelectField'
+import SliderField from './SliderField'
 import { playfield, setPlayfield } from '../state/playfield'
+import {
+  clearPlayfieldImage,
+  fitPlayfieldImage,
+  imageHeight,
+  loadPlayfieldImage,
+  playfieldImage,
+  setPlayfieldImage,
+} from '../state/playfieldImage'
 import {
   flippers,
   mass,
@@ -35,6 +45,89 @@ const SPACING_OPTIONS: { label: string; value: SpacingMode }[] = [
   { label: 'Distance between pivots', value: 'pivots' },
   { label: 'Distance between tips', value: 'tips' },
 ]
+
+const inches = (value: number) => `${value.toFixed(2)}"`
+
+// Nudge for lining the playfield image up, inches.
+const IMAGE_STEP = 0.01
+
+/** A picture under the preview to lay shots out against, faded and moved into register. */
+function PlayfieldImageSection() {
+  let input!: HTMLInputElement
+  return (
+    <section class="sidebar-section">
+      <h2 class="sidebar-heading">Playfield Image</h2>
+      <div class="playfield-image-file">
+        <span class="playfield-image-name">{playfieldImage.name || 'None'}</span>
+        <button type="button" class="wall-mount-add" onClick={() => input.click()}>
+          {playfieldImage.src ? 'Replace' : 'Upload'}
+        </button>
+        <Show when={playfieldImage.src}>
+          <button type="button" class="wall-mount-add" onClick={clearPlayfieldImage}>
+            Remove
+          </button>
+        </Show>
+        <input
+          ref={input}
+          class="playfield-image-input"
+          type="file"
+          accept="image/*"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0]
+            if (file) loadPlayfieldImage(file)
+            // Let the same file be picked again after it's removed.
+            event.currentTarget.value = ''
+          }}
+        />
+      </div>
+      <Show when={playfieldImage.src}>
+        <SliderField
+          label="Opacity"
+          value={playfieldImage.opacity}
+          min={0}
+          max={1}
+          step={0.01}
+          format={(v) => `${Math.round(v * 100)}%`}
+          onChange={(opacity) => setPlayfieldImage('opacity', opacity)}
+        />
+        <NumberField
+          label="Width"
+          unit="in"
+          min={1}
+          max={playfield.width * 4}
+          step={IMAGE_STEP}
+          value={playfieldImage.width}
+          onChange={(width) => setPlayfieldImage('width', width)}
+        />
+        <p class="field-note">Height {inches(imageHeight())}, from the image's proportions.</p>
+        <NumberField
+          label="Left edge"
+          unit="in"
+          min={-playfield.width}
+          max={playfield.width}
+          step={IMAGE_STEP}
+          value={playfieldImage.x}
+          onChange={(x) => setPlayfieldImage('x', x)}
+        />
+        <NumberField
+          label="Bottom edge"
+          unit="in"
+          min={-playfield.height}
+          max={playfield.height}
+          step={IMAGE_STEP}
+          value={playfieldImage.y}
+          onChange={(y) => setPlayfieldImage('y', y)}
+        />
+        <button type="button" class="wall-mount-add" onClick={fitPlayfieldImage}>
+          Fit to playfield
+        </button>
+        <p class="field-note">
+          Edges are measured from the playfield's left edge and bottom lip. The arrows and arrow keys step 0.01".
+        </p>
+      </Show>
+    </section>
+  )
+}
 
 export default function SetupTab() {
   return (
@@ -82,6 +175,8 @@ export default function SetupTab() {
           onChange={(sideRail) => setPlayfield('sideRail', sideRail)}
         />
       </section>
+
+      <PlayfieldImageSection />
 
       <section class="sidebar-section">
         <h2 class="sidebar-heading">Flipper Position</h2>

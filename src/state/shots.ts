@@ -55,8 +55,13 @@ export type Shot = {
   // Distance from the entrance over which the lane narrows to the exit
   // width, inches. Infinity spreads it over the whole lane.
   funnelLength: number
+  // Points between the entrance and exit the lane passes through, in order,
+  // for shapes a single bend can't make.
+  via: ViaPoint[]
   mounts: Record<WallSide, WallMount[]>
 }
+
+export type ViaPoint = Entrance & { id: number }
 
 const [shots, setShots] = createStore<Shot[]>([])
 
@@ -95,6 +100,7 @@ export function addShot(options: NewShot = {}) {
     entranceOffset: 0,
     leadIn: 0,
     funnelLength: Infinity,
+    via: [],
     mounts: { left: defaultMounts(), right: defaultMounts() },
   })
   setSelectedId(id)
@@ -143,6 +149,21 @@ export function updateShot(
   >,
 ) {
   setShots((shot) => shot.id === id, changes)
+}
+
+let nextViaId = 1
+
+/** Insert a via point at `index` among the shot's via points. */
+export function addVia(id: number, index: number, at: Entrance) {
+  setShots((s) => s.id === id, 'via', (list) => [...list.slice(0, index), { id: nextViaId++, ...at }, ...list.slice(index)])
+}
+
+export function moveVia(id: number, viaId: number, at: Partial<Entrance>) {
+  setShots((s) => s.id === id, 'via', (v) => v.id === viaId, at)
+}
+
+export function removeVia(id: number, viaId: number) {
+  setShots((s) => s.id === id, 'via', (list) => list.filter((v) => v.id !== viaId))
 }
 
 /** Add a spike in the middle of the widest gap between a wall's mounts. */

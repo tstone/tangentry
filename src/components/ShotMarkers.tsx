@@ -1,11 +1,23 @@
 import { For } from 'solid-js'
 import { playfield } from '../state/playfield'
-import { selectedId, setEntrance, setExit, setSelectedId, shots, updateShot, type Shot } from '../state/shots'
+import {
+  moveVia,
+  removeVia,
+  selectedId,
+  setEntrance,
+  setExit,
+  setSelectedId,
+  shots,
+  updateShot,
+  type Shot,
+} from '../state/shots'
 import type { Point } from '../geometry/flipper'
 import { startDrag } from './drag'
 
 // Display radius of the entrance and exit handles, in inches.
 const HANDLE_RADIUS = 0.3
+// Display radius of bend point handles, in inches.
+const VIA_RADIUS = 0.22
 // Display radius of the exit direction handle, in inches.
 const DIRECTION_RADIUS = 0.18
 // Distance from the exit to its direction handle at an exit weight of 1, in
@@ -83,6 +95,23 @@ export default function ShotMarkers() {
               >
                 <title>{shot.name} exit direction and weight</title>
               </circle>
+              <For each={shot.via}>
+                {(point, i) => (
+                  <circle
+                    class="shot-handle shot-via"
+                    cx={point.x}
+                    cy={playfield.height - point.y}
+                    r={VIA_RADIUS}
+                    vector-effect="non-scaling-stroke"
+                    onPointerDown={(e) => grab(shot, e, (p) => moveVia(shot.id, point.id, snapToPlayfield(p)))}
+                    onDblClick={() => removeVia(shot.id, point.id)}
+                  >
+                    <title>
+                      {shot.name} bend point {i() + 1}: drag to move, double-click to remove
+                    </title>
+                  </circle>
+                )}
+              </For>
               <circle
                 class="shot-handle shot-entrance"
                 cx={shot.entrance.x}

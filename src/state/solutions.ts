@@ -224,6 +224,7 @@ function analyze(shot: Shot): ShotAnalysis {
     shot.continuity,
     { entrance: shot.entranceWeight, exit: shot.exitWeight },
     shot.leadIn,
+    shot.via.map((v) => ({ x: v.x, y: playfield.height - v.y })),
   )
   const width = {
     entrance: shot.entranceWidth,

@@ -10,7 +10,8 @@ export type TangentWeights = { entrance: number; exit: number }
 // A point on a curve with its unit tangent and distance along the curve.
 export type CurveSample = { p: Point; t: Point; s: number }
 
-// Samples taken along a lane's center line.
+// Samples taken along each stretch of a lane's center line, between
+// consecutive points it passes through.
 const SAMPLES = 200
 
 const add = (a: Point, b: Point): Point => ({ x: a.x + b.x, y: a.y + b.y })
@@ -64,7 +65,7 @@ function arc(a: Point, t: Point, b: Point, count: number) {
  * control legs are in the ratio of the weights. Only the ratio matters, since
  * a biarc has no other freedom.
  */
-function biarc(p0: Point, t0: Point, p1: Point, t1: Point, weights: TangentWeights) {
+function biarc(p0: Point, t0: Point, p1: Point, t1: Point, weights: TangentWeights, samples: number) {
   const a = weights.entrance
   const b = weights.exit
   const v = sub(p1, p0)
@@ -84,9 +85,9 @@ function biarc(p0: Point, t0: Point, p1: Point, t1: Point, weights: TangentWeigh
   const q1 = sub(p1, scale(t1, b * x))
   const joint = add(q0, scale(sub(q1, q0), a / (a + b)))
 
-  const first = arc(p0, t0, joint, SAMPLES / 2)
+  const first = arc(p0, t0, joint, samples / 2)
   // The second arc is traced backward from the exit so it lands on the exit tangent.
-  const second = arc(p1, scale(t1, -1), joint, SAMPLES / 2)
+  const second = arc(p1, scale(t1, -1), joint, samples / 2)
     .reverse()
     .map((q) => ({ p: q.p, t: scale(q.t, -1) }))
   return [...first, ...second.slice(1)]
@@ -96,14 +97,14 @@ function biarc(p0: Point, t0: Point, p1: Point, t1: Point, weights: TangentWeigh
  * G2 blend: a quintic Hermite curve with zero curvature at both ends, so it
  * eases in from the straight approach and out into the straight exit.
  */
-function quintic(p0: Point, t0: Point, p1: Point, t1: Point, weights: TangentWeights) {
+function quintic(p0: Point, t0: Point, p1: Point, t1: Point, weights: TangentWeights, samples: number) {
   // Tangent magnitudes default to the chord length.
   const chord = Math.hypot(p1.x - p0.x, p1.y - p0.y)
   const m0 = scale(t0, chord * weights.entrance)
   const m1 = scale(t1, chord * weights.exit)
   const points: { p: Point; t: Point }[] = []
-  for (let i = 0; i <= SAMPLES; i++) {
-    const u = i / SAMPLES
+  for (let i = 0; i <= samples; i++) {
+    const u = i / samples
     const u2 = u * u
     const u3 = u2 * u
     const u4 = u3 * u
@@ -128,8 +129,14 @@ const LEAD_IN_SPACING = 0.1
 
 /**
  * Center line of a lane from `start` heading along `startDir` to `end`
- * heading along `endDir`. Directions needn't be unit length. The lane runs
- * straight for `leadIn` inches before it starts to bend.
+ * heading along `endDir`, passing through each of `via` in order.
+ * Directions needn't be unit length. The lane runs straight for `leadIn`
+ * inches before it starts to bend.
+ *
+ * At a via point the lane heads parallel to the line from the point before
+ * it to the point after (as in a Catmull-Rom spline), and each stretch
+ * between points is blended like a lane with no via points. With G2 the
+ * curvature is zero where stretches meet, so it stays continuous.
  */
 export function laneCenterLine(
   start: Point,
@@ -139,14 +146,26 @@ export function laneCenterLine(
   continuity: Continuity,
   weights: TangentWeights,
   leadIn = 0,
+  via: Point[] = [],
 ): CurveSample[] {
   const t0 = unit(startDir)
   const t1 = unit(endDir)
   const straight: { p: Point; t: Point }[] = []
   const count = Math.ceil(leadIn / LEAD_IN_SPACING)
   for (let i = 0; i < count; i++) straight.push({ p: add(start, scale(t0, (leadIn * i) / count)), t: t0 })
-  const bendStart = add(start, scale(t0, leadIn))
-  const bend = continuity === 'g1' ? biarc(bendStart, t0, end, t1, weights) : quintic(bendStart, t0, end, t1, weights)
+
+  const points = [add(start, scale(t0, leadIn)), ...via, end]
+  const last = points.length - 1
+  const tangents = points.map((_, i) => (i === 0 ? t0 : i === last ? t1 : unit(sub(points[i + 1], points[i - 1]))))
+  const blend = continuity === 'g1' ? biarc : quintic
+  const bend: { p: Point; t: Point }[] = []
+  for (let i = 0; i < last; i++) {
+    // The entrance and exit weights shape the first and last stretches.
+    const w = { entrance: i === 0 ? weights.entrance : 1, exit: i === last - 1 ? weights.exit : 1 }
+    const stretch = blend(points[i], tangents[i], points[i + 1], tangents[i + 1], w, SAMPLES)
+    // Each stretch starts where the last one ended; keep that point once.
+    bend.push(...(i === 0 ? stretch : stretch.slice(1)))
+  }
   return withLength([...straight, ...bend])
 }
 

@@ -7,7 +7,9 @@ import { ball } from '../state/ball'
 import {
   addMount,
   addShot,
+  moveVia,
   removeMount,
+  removeVia,
   removeShot,
   updateMount,
   selectedId,
@@ -34,6 +36,7 @@ import { isHovered, pathColor, setHoveredPath } from '../state/view'
 import type { Departure } from '../physics/shot'
 import { MOUNT_KINDS, type MountKind } from '../physics/wall'
 import { suggestMounts } from '../state/mountSuggestions'
+import { insertVia } from '../state/viaPoints'
 import { formatDegrees, formatInches } from './Dimensions'
 
 const DEPARTURE_LABELS: Record<Departure, string> = {
@@ -246,6 +249,58 @@ function LaneShaping(props: { shot: Shot }) {
   )
 }
 
+/** Points the lane passes through between its entrance and exit. */
+function ViaPoints(props: { shot: Shot }) {
+  return (
+    <>
+      <h4 class="sidebar-heading">Bend points</h4>
+      <For each={props.shot.via}>
+        {(point, i) => (
+          <div class="wall-mount">
+            <div class="wall-mount-header">
+              <span class="via-point-label">Point {i() + 1}</span>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label={`Remove bend point ${i() + 1}`}
+                title="Remove bend point"
+                onClick={() => removeVia(props.shot.id, point.id)}
+              >
+                −
+              </button>
+            </div>
+            <NumberField
+              label="X"
+              unit="in"
+              min={0}
+              max={playfield.width}
+              step={0.125}
+              value={point.x}
+              onChange={(x) => moveVia(props.shot.id, point.id, { x })}
+            />
+            <NumberField
+              label="Y from bottom"
+              unit="in"
+              min={0}
+              max={playfield.height}
+              step={0.125}
+              value={point.y}
+              onChange={(y) => moveVia(props.shot.id, point.id, { y })}
+            />
+          </div>
+        )}
+      </For>
+      <button type="button" class="wall-mount-add" onClick={() => insertVia(props.shot.id)}>
+        + Add bend point
+      </button>
+      <p class="field-note">
+        The lane passes through each point in order. New points go midway along the longest stretch; drag them on the
+        playfield. Double-click a point there to remove it.
+      </p>
+    </>
+  )
+}
+
 function WallMounts(props: { shot: Shot; side: WallSide; label: string }) {
   const length = () => selectedAnalysis()?.lane?.walls.find((w) => w.side === props.side)?.lengths.at(-1) ?? 0
   return (
@@ -350,6 +405,8 @@ function ShotCard(props: { shot: Shot }) {
           value={props.shot.entranceWidth}
           onChange={(entranceWidth) => updateShot(props.shot.id, { entranceWidth })}
         />
+
+        <ViaPoints shot={props.shot} />
 
         <h4 class="sidebar-heading">Exit</h4>
         <NumberField

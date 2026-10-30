@@ -26,6 +26,12 @@ body,
   margin: 0;
 }
 
+/* The app fills the window; only the sidebar scrolls, inside its own box. */
+html,
+body {
+  overflow: hidden;
+}
+
 /* Layout */
 .app {
   height: 100%;
@@ -147,6 +153,45 @@ body,
 }
 
 /* Path coloring control, overlaid top right of the preview. */
+/* Zoom buttons, overlaid top left of the preview. */
+.preview-zoom {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.preview-zoom-button {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.preview-zoom-button:hover {
+  border-color: var(--fg-muted);
+}
+
+.preview-zoom-level {
+  min-width: 3.75rem;
+}
+
+.preview-canvas {
+  cursor: grab;
+  touch-action: none;
+}
+
+.preview-canvas.is-panning {
+  cursor: grabbing;
+}
+
 .path-coloring {
   position: absolute;
   top: 1rem;
@@ -210,13 +255,26 @@ body,
 
 .playfield {
   fill: #1c2029;
+}
+
+.playfield-outline {
+  fill: none;
   stroke: var(--accent);
   stroke-width: 1.5;
+}
+
+.playfield-image {
+  pointer-events: none;
 }
 
 /* Unplayable strips down each side. */
 .side-rail {
   fill: #2b2f38;
+}
+
+/* Let the playfield image show through the rails, for lining it up. */
+.side-rails.has-image .side-rail {
+  opacity: 0.6;
 }
 
 .center-line {
@@ -467,6 +525,11 @@ body,
 .shot-exit,
 .shot-exit-angle {
   fill: #6bc5ff;
+}
+
+/* Between the entrance's pink and the exit's blue. */
+.shot-via {
+  fill: #b89cff;
 }
 
 .shot-exit-direction {
@@ -759,8 +822,13 @@ body,
   gap: 0.5rem;
 }
 
-.wall-mount-header .select-field {
+.wall-mount-header .select-field,
+.via-point-label {
   flex: 1;
+}
+
+.via-point-label {
+  align-self: center;
 }
 
 .wall-mount-add {
@@ -816,6 +884,25 @@ body,
 
 .is-highlighted .side-rail {
   fill: color-mix(in srgb, var(--highlight) 45%, #2b2f38);
+}
+
+/* Playfield image */
+.playfield-image-file {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.playfield-image-name {
+  flex: 1;
+  overflow: hidden;
+  color: var(--fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playfield-image-input {
+  display: none;
 }
 
 /* Collapsible wall mount list */
