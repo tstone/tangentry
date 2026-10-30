@@ -1102,8 +1102,20 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.reserved-name {
-  width: 12rem;
+/* A card name being renamed, in place of its select button. */
+.card-name-input {
+  flex: 1;
+  min-width: 0;
+  margin-right: 0.5rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  outline: none;
 }
 
 .reserved-shape {

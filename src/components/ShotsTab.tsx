@@ -1,5 +1,6 @@
 import { For, Show, createSignal, onCleanup } from 'solid-js'
 import NumberField from './NumberField'
+import CardName from './CardName'
 import SelectField from './SelectField'
 import SliderField from './SliderField'
 import { playfield } from '../state/playfield'
@@ -11,6 +12,7 @@ import {
   removeMount,
   removeVia,
   removeShot,
+  renameShot,
   updateMount,
   selectedId,
   setEntrance,
@@ -402,19 +404,15 @@ function ShotCard(props: { shot: Shot }) {
   return (
     <section class="sidebar-section shot-card" classList={{ 'is-selected': selected() }}>
       <div class="shot-header">
-        <button
-          type="button"
-          class="shot-select"
-          aria-pressed={selected()}
-          onClick={() => setSelectedId(props.shot.id)}
-        >
-          <span class="shot-name">{props.shot.name}</span>
-          <Show when={!selected()}>
-            <span class="shot-summary">
-              {formatInches(props.shot.entrance.x)}, {formatInches(props.shot.entrance.y)}
-            </span>
-          </Show>
-        </button>
+        <CardName
+          name={props.shot.name}
+          selected={selected()}
+          summary={
+            selected() ? undefined : `${formatInches(props.shot.entrance.x)}, ${formatInches(props.shot.entrance.y)}`
+          }
+          onSelect={() => setSelectedId(props.shot.id)}
+          onRename={(name) => renameShot(props.shot.id, name)}
+        />
         <button
           type="button"
           class="icon-button"

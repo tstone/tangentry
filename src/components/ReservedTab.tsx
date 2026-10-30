@@ -1,5 +1,6 @@
 import { For, Match, Show, Switch } from 'solid-js'
 import NumberField from './NumberField'
+import CardName from './CardName'
 import { playfield } from '../state/playfield'
 import {
   MIN_POLYGON_POINTS,
@@ -120,15 +121,13 @@ function ReservedCard(props: { area: ReservedArea }) {
   return (
     <section class="sidebar-section shot-card" classList={{ 'is-selected': selected() }}>
       <div class="shot-header">
-        <button
-          type="button"
-          class="shot-select"
-          aria-pressed={selected()}
-          onClick={() => setSelectedReservedId(props.area.id)}
-        >
-          <span class="shot-name">{props.area.name}</span>
-          <span class="shot-summary">{summary(props.area)}</span>
-        </button>
+        <CardName
+          name={props.area.name}
+          selected={selected()}
+          summary={summary(props.area)}
+          onSelect={() => setSelectedReservedId(props.area.id)}
+          onRename={(name) => renameReserved(props.area.id, name)}
+        />
         <button
           type="button"
           class="icon-button"
@@ -140,17 +139,6 @@ function ReservedCard(props: { area: ReservedArea }) {
         </button>
       </div>
       <Show when={selected()}>
-        <label class="number-field">
-          <span class="number-field-label">Name</span>
-          <span class="number-field-control reserved-name">
-            <input
-              class="number-field-input"
-              type="text"
-              value={props.area.name}
-              onInput={(e) => renameReserved(props.area.id, e.currentTarget.value)}
-            />
-          </span>
-        </label>
         <Switch>
           <Match when={props.area.kind === 'circle' && props.area}>{(area) => <CircleFields area={area()} />}</Match>
           <Match when={props.area.kind === 'polygon' && props.area}>{(area) => <PolygonFields area={area()} />}</Match>

@@ -132,6 +132,10 @@ export function removeShot(id: number) {
   }
 }
 
+export function renameShot(id: number, name: string) {
+  setShots((shot) => shot.id === id, 'name', name)
+}
+
 export function setEntrance(id: number, entrance: Partial<Entrance>) {
   setShots((shot) => shot.id === id, 'entrance', entrance)
 }
