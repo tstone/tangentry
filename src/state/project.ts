@@ -15,7 +15,7 @@ import {
   type WallMount,
 } from './shots'
 import { replaceReserved, reserved, type ReservedArea } from './reserved'
-import { COILS, MATERIALS } from '../physics/drive'
+import { COILS, FLIPPER_PROFILES } from '../physics/drive'
 import { MOUNT_KINDS, WALL_MATERIALS } from '../physics/wall'
 
 // Everything configurable, saved to and loaded from a file. The playfield
@@ -215,10 +215,11 @@ export function importProject(json: string) {
 
   const next = {
     playfield: section(file.playfield, playfield, 'playfield'),
-    flippers: section(file.flippers, flippers, 'flippers', {
+    // Files saved before profiles gave the standard flipper's dimensions.
+    flippers: section({ profile: 'modern-standard', ...object(file.flippers, 'flippers') }, flippers, 'flippers', {
       alignment: ['top', 'centered', 'flopped'],
       spacingMode: ['pivots', 'tips'],
-      material: ids(MATERIALS),
+      profile: ids(FLIPPER_PROFILES),
       coil: ids(COILS),
     }),
     inlanes: section(file.inlanes, inlanes, 'inlanes'),

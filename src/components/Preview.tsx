@@ -2,7 +2,7 @@ import { Index, Show, createMemo, createSignal, onCleanup, onMount } from 'solid
 import { resetView, setCenter, viewBox, viewCenter, zoom, zoomBy, zoomIn, zoomOut } from './previewView'
 import { playfield } from '../state/playfield'
 import { imageHeight, playfieldImage } from '../state/playfieldImage'
-import { centerDistance, contactBaseRadius, contactTipRadius, flippers } from '../state/flippers'
+import { centerDistance, contactBaseRadius, contactTipRadius, flippers, profile } from '../state/flippers'
 import { highlight } from '../state/highlight'
 import { visible } from '../state/view'
 import { computeLayout } from '../state/layout'
@@ -178,7 +178,7 @@ export default function Preview() {
                 />
                 <path
                   class="flipper-insert"
-                  d={flipperPath(f().pivot, flippers.baseRadius, flippers.tipRadius, centerDistance(), f().angle)}
+                  d={flipperPath(f().pivot, profile().baseRadius, profile().tipRadius, centerDistance(), f().angle)}
                   vector-effect="non-scaling-stroke"
                 />
                 <circle
@@ -217,7 +217,7 @@ export default function Preview() {
           <SketchStrokes />
         </Show>
       </svg>
-      <Show when={sketching()} fallback={<h1 class="preview-title">Tangentry</h1>}>
+      <Show when={sketching()}>
         <SketchPalette />
       </Show>
       <div class="preview-toolbar">

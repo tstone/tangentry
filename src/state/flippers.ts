@@ -1,6 +1,6 @@
 import { createStore } from 'solid-js/store'
 import { inlanes } from './inlanes'
-import { coilTorque, flipperInertia, flipperMass, unloadedStrokeTime, type CoilId, type MaterialId } from '../physics/drive'
+import { coilTorque, flipperInertia, flipperProfile, unloadedStrokeTime, type CoilId, type FlipperProfileId } from '../physics/drive'
 
 // How the horizontal spacing of the flipper pair is specified.
 export type SpacingMode = 'pivots' | 'tips'
@@ -23,18 +23,10 @@ export type Flippers = {
   spacing: number
 
   // Type
-  // Radii of the plastic insert the rubber is stretched around.
-  baseRadius: number
-  tipRadius: number
-  // Overall length of the insert, from the back of the base to the end of
-  // the tip.
-  length: number
-  // Thickness of the rubber ring around the insert. The ball rides on its
-  // outer surface.
-  rubberThickness: number
+  // Stock flipper, which sets the size and mass.
+  profile: FlipperProfileId
   // Coefficient of friction between the rubber and the ball.
   friction: number
-  material: MaterialId
 
   // Motion
   // Angle swept from rest to the up position.
@@ -48,30 +40,26 @@ const [flippers, setFlippers] = createStore<Flippers>({
   alignment: 'top',
   spacingMode: 'pivots',
   spacing: 7,
-  baseRadius: 0.2875,
-  tipRadius: 0.0975,
-  length: 2.87,
-  rubberThickness: 0.15,
+  profile: 'modern-standard',
   friction: 0.2,
-  material: 'plastic',
   strokeAngle: 55,
   coil: 'FL-11630',
 })
 
+/** Dimensions and mass of the chosen stock flipper. */
+export const profile = () => flipperProfile(flippers.profile)
+
 /** Pivot center to tip center. */
-export const centerDistance = () => Math.max(0, flippers.length - flippers.baseRadius - flippers.tipRadius)
+export const centerDistance = () => Math.max(0, profile().length - profile().baseRadius - profile().tipRadius)
 
 /** Radius of the rubber's outer surface around the base, where the ball makes contact. */
-export const contactBaseRadius = () => flippers.baseRadius + flippers.rubberThickness
+export const contactBaseRadius = () => profile().baseRadius + profile().rubberThickness
 
 /** Radius of the rubber's outer surface around the tip, where the ball makes contact. */
-export const contactTipRadius = () => flippers.tipRadius + flippers.rubberThickness
+export const contactTipRadius = () => profile().tipRadius + profile().rubberThickness
 
 /** Resistance of the flipper, plunger and linkage to turning, g·in². */
-export const inertia = () => flipperInertia(flippers.material, contactBaseRadius(), contactTipRadius(), centerDistance())
-
-/** Mass of the flipper, grams. */
-export const mass = () => flipperMass(flippers.material, contactBaseRadius(), contactTipRadius(), centerDistance())
+export const inertia = () => flipperInertia(profile())
 
 /** Coil torque at the flipper shaft, g·in²/s². */
 export const torque = () => coilTorque(flippers.coil)
@@ -88,7 +76,7 @@ const edgeAngle = () => {
   // The rubber is the same thickness all round, so it doesn't change the angle.
   const d = centerDistance()
   if (d <= 0) return 0
-  const ratio = (flippers.baseRadius - flippers.tipRadius) / d
+  const ratio = (profile().baseRadius - profile().tipRadius) / d
   return (Math.asin(Math.max(-1, Math.min(1, ratio))) * 180) / Math.PI
 }
 

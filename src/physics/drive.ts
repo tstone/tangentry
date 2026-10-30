@@ -20,23 +20,54 @@ export const COILS: Coil[] = [
   { id: 'FL-11629', label: 'FL-11629 (blue, high)', resistance: 4.0 },
 ]
 
-export type MaterialId = 'plastic'
+export type FlipperProfileId = 'modern-standard' | 'modern-mini'
 
-export type Material = {
-  id: MaterialId
+// A stock flipper: the plastic insert the rubber is stretched around, the
+// rubber, and what the whole assembly weighs.
+export type FlipperProfile = {
+  id: FlipperProfileId
   label: string
-  // Mass of a full-size flipper (bat, shaft and rubber) in this material.
-  referenceMass: number
+  // Radii of the insert at base and tip.
+  baseRadius: number
+  tipRadius: number
+  // Overall length of the insert, from the back of the base to the end of
+  // the tip.
+  length: number
+  // Thickness of the rubber ring around the insert. The ball rides on its
+  // outer surface.
+  rubberThickness: number
+  // Bat, shaft and rubber, grams.
+  mass: number
 }
 
-export const MATERIALS: Material[] = [
-  // Measured: a full-size plastic flipper with its shaft and natural rubber weighs 1.2 oz.
-  { id: 'plastic', label: 'Plastic', referenceMass: 1.2 * 28.3495 },
+const STANDARD: FlipperProfile = {
+  id: 'modern-standard',
+  label: 'Modern Standard',
+  baseRadius: 0.2875,
+  tipRadius: 0.0975,
+  length: 2.87,
+  rubberThickness: 0.15,
+  // Measured: plastic, with its shaft and natural rubber.
+  mass: 1.2 * 28.3495,
+}
+
+export const FLIPPER_PROFILES: FlipperProfile[] = [
+  STANDARD,
+  {
+    id: 'modern-mini',
+    label: 'Modern Mini',
+    // Measured: 0.62″ and 0.2″ across at base and tip.
+    baseRadius: 0.31,
+    tipRadius: 0.1,
+    length: 2.08,
+    // Not measured: the standard rubber scaled to the mini's two-thirds size.
+    rubberThickness: 0.1,
+    // Measured, with its shaft and rubber.
+    mass: 1.0 * 28.3495,
+  },
 ]
 
-// Outline of the full-size flipper the reference masses were measured on:
-// outer radii of the rubber at base and tip, and pivot to tip center.
-const REFERENCE_SHAPE = { baseRadius: 0.2875 + 0.15, tipRadius: 0.0975 + 0.15, length: 2.87 - 0.2875 - 0.0975 }
+export const flipperProfile = (id: FlipperProfileId) => FLIPPER_PROFILES.find((p) => p.id === id)!
 
 // Estimated equivalent inertia of the coil plunger and linkage, felt at the
 // flipper shaft: roughly a 60 g plunger on a 0.5″ crank arm. Not measured.
@@ -81,27 +112,18 @@ function outline(baseRadius: number, tipRadius: number, length: number) {
   return { area, polar }
 }
 
-const REFERENCE_OUTLINE = outline(REFERENCE_SHAPE.baseRadius, REFERENCE_SHAPE.tipRadius, REFERENCE_SHAPE.length)
-
 /**
  * Resistance of the flipper, plunger and linkage to turning, g·in². The
- * flipper's mass is spread evenly over its outline, scaled from the
- * reference flipper by area.
+ * flipper's mass is spread evenly over the outline of its rubber.
  */
-export function flipperInertia(material: MaterialId, baseRadius: number, tipRadius: number, length: number) {
-  const density = MATERIALS.find((m) => m.id === material)!.referenceMass / REFERENCE_OUTLINE.area
-  return density * outline(baseRadius, tipRadius, length).polar + MECHANISM_INERTIA
+export function flipperInertia(profile: FlipperProfile) {
+  const baseRadius = profile.baseRadius + profile.rubberThickness
+  const tipRadius = profile.tipRadius + profile.rubberThickness
+  const shape = outline(baseRadius, tipRadius, Math.max(0, profile.length - profile.baseRadius - profile.tipRadius))
+  return (profile.mass / shape.area) * shape.polar + MECHANISM_INERTIA
 }
 
-/** Mass of the flipper, grams. */
-export function flipperMass(material: MaterialId, baseRadius: number, tipRadius: number, length: number) {
-  const density = MATERIALS.find((m) => m.id === material)!.referenceMass / REFERENCE_OUTLINE.area
-  return density * outline(baseRadius, tipRadius, length).area
-}
-
-const REFERENCE_TORQUE =
-  (2 * REFERENCE_STROKE * flipperInertia('plastic', REFERENCE_SHAPE.baseRadius, REFERENCE_SHAPE.tipRadius, REFERENCE_SHAPE.length)) /
-  (REFERENCE_STROKE_TIME * REFERENCE_STROKE_TIME)
+const REFERENCE_TORQUE = (2 * REFERENCE_STROKE * flipperInertia(STANDARD)) / (REFERENCE_STROKE_TIME * REFERENCE_STROKE_TIME)
 
 /**
  * Torque a coil applies at the flipper shaft, held constant through the

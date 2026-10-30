@@ -13,7 +13,7 @@ import {
 } from '../state/playfieldImage'
 import {
   flippers,
-  mass,
+  profile,
   setFlippers,
   setSpacingMode,
   unloadedStrokeMs,
@@ -24,7 +24,9 @@ import { inlanes, setInlanes } from '../state/inlanes'
 import { ball, setBall } from '../state/ball'
 import { walls, setWalls } from '../state/walls'
 import { log } from '../state/log'
-import { COILS, MATERIALS, type CoilId, type MaterialId } from '../physics/drive'
+import { COILS, FLIPPER_PROFILES, type CoilId, type FlipperProfileId } from '../physics/drive'
+import type { HighlightKey } from '../state/highlight'
+import { highlightHandlers } from './highlightHandlers'
 import { WALL_MATERIALS, type WallMaterialId } from '../physics/wall'
 
 const ALIGNMENT_OPTIONS: { label: string; value: Alignment }[] = [
@@ -35,7 +37,10 @@ const ALIGNMENT_OPTIONS: { label: string; value: Alignment }[] = [
 
 const COIL_OPTIONS: { label: string; value: CoilId }[] = COILS.map((c) => ({ label: c.label, value: c.id }))
 
-const MATERIAL_OPTIONS: { label: string; value: MaterialId }[] = MATERIALS.map((m) => ({ label: m.label, value: m.id }))
+const PROFILE_OPTIONS: { label: string; value: FlipperProfileId }[] = FLIPPER_PROFILES.map((p) => ({
+  label: p.label,
+  value: p.id,
+}))
 
 const WALL_MATERIAL_OPTIONS: { label: string; value: WallMaterialId }[] = WALL_MATERIALS.map((m) => ({
   label: m.label,
@@ -48,6 +53,16 @@ const SPACING_OPTIONS: { label: string; value: SpacingMode }[] = [
 ]
 
 const inches = (value: number) => `${value.toFixed(2)}"`
+
+/** A fixed value from the flipper profile, called out on the preview while hovered. */
+function Spec(props: { label: string; value: string; highlight?: HighlightKey }) {
+  return (
+    <div class="spec-row" {...highlightHandlers(props.highlight)}>
+      <dt>{props.label}</dt>
+      <dd>{props.value}</dd>
+    </div>
+  )
+}
 
 // Nudge for lining the playfield image up, inches.
 const IMAGE_STEP = 0.01
@@ -235,53 +250,19 @@ export default function SetupTab() {
 
       <section class="sidebar-section">
         <h2 class="sidebar-heading">Flipper Type</h2>
-        <NumberField
-          label="Base radius"
-          unit="in"
-          min={0.05}
-          max={5}
-          step={0.0025}
-          value={flippers.baseRadius}
-          highlight="flippers.baseRadius"
-          onChange={(baseRadius) => setFlippers('baseRadius', baseRadius)}
-        />
-        <NumberField
-          label="Tip radius"
-          unit="in"
-          min={0.05}
-          max={5}
-          step={0.0025}
-          value={flippers.tipRadius}
-          highlight="flippers.tipRadius"
-          onChange={(tipRadius) => setFlippers('tipRadius', tipRadius)}
-        />
-        <NumberField
-          label="Length"
-          unit="in"
-          min={0.125}
-          max={20}
-          step={0.01}
-          value={flippers.length}
-          highlight="flippers.length"
-          onChange={(length) => setFlippers('length', length)}
-        />
-        <NumberField
-          label="Rubber thickness"
-          unit="in"
-          min={0}
-          max={1}
-          step={0.01}
-          value={flippers.rubberThickness}
-          highlight="flippers.rubberThickness"
-          onChange={(rubberThickness) => setFlippers('rubberThickness', rubberThickness)}
-        />
         <SelectField
-          label="Material"
-          options={MATERIAL_OPTIONS}
-          value={flippers.material}
-          onChange={(material) => setFlippers('material', material)}
+          label="Profile"
+          options={PROFILE_OPTIONS}
+          value={flippers.profile}
+          onChange={(id) => setFlippers('profile', id)}
         />
-        <p class="field-note">Flipper mass: {(mass() / 28.3495).toFixed(2)} oz</p>
+        <dl class="spec-list">
+          <Spec label="Base radius" value={inches(profile().baseRadius)} highlight="flippers.baseRadius" />
+          <Spec label="Tip radius" value={inches(profile().tipRadius)} highlight="flippers.tipRadius" />
+          <Spec label="Length" value={inches(profile().length)} highlight="flippers.length" />
+          <Spec label="Rubber thickness" value={inches(profile().rubberThickness)} highlight="flippers.rubberThickness" />
+          <Spec label="Mass" value={`${(profile().mass / 28.3495).toFixed(2)} oz`} />
+        </dl>
         <NumberField
           label="Rubber friction"
           unit="μ"

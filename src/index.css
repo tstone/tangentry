@@ -106,6 +106,28 @@ body {
   min-width: 0;
 }
 
+/* Fixed values that come with a choice, e.g. a flipper profile's dimensions. */
+.spec-list {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.spec-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.1rem 0;
+}
+
+.spec-row dt {
+  color: var(--fg-muted);
+}
+
+.spec-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Derived value shown under a field. */
 .field-note {
   margin: 0;
@@ -170,22 +192,7 @@ body {
 }
 
 /* Path coloring control, overlaid top right of the preview. */
-/* App name, overlaid top center of the preview. */
-.preview-title {
-  position: absolute;
-  top: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--fg-muted);
-  pointer-events: none;
-  user-select: none;
-}
-
-/* Sketch colors and Finish, in place of the title while sketching. */
+/* Sketch colors and Finish, overlaid top center of the preview while sketching. */
 .sketch-bar {
   position: absolute;
   top: 1rem;
@@ -998,6 +1005,14 @@ body {
 
 .shot-handle:active {
   cursor: grabbing;
+}
+
+/* Like a hovered shot picker, shows the handle can be grabbed. */
+.shot-entrance:hover,
+.shot-exit:hover,
+.shot-exit-angle:hover {
+  stroke: #fff;
+  stroke-width: 2;
 }
 
 .shot-entrance {

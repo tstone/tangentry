@@ -1,7 +1,7 @@
 import { Index, Match, Switch } from 'solid-js'
 import { highlight } from '../state/highlight'
 import { playfield } from '../state/playfield'
-import { centerDistance, contactBaseRadius, contactTipRadius, flippers } from '../state/flippers'
+import { centerDistance, contactBaseRadius, contactTipRadius, flippers, profile } from '../state/flippers'
 import { inlanes } from '../state/inlanes'
 import { INLANE_LENGTH, toRadians, type FlipperLayout } from '../state/layout'
 import { flipperPath, type Point } from '../geometry/flipper'
@@ -140,14 +140,14 @@ export default function Annotations(props: Props) {
             class="highlight-shape"
             cx={left().pivot.x}
             cy={left().pivot.y}
-            r={flippers.baseRadius}
+            r={profile().baseRadius}
             vector-effect="non-scaling-stroke"
           />
           <LinearDimension
             a={left().pivot}
-            b={along(left().pivot, (-3 * Math.PI) / 4, flippers.baseRadius)}
+            b={along(left().pivot, (-3 * Math.PI) / 4, profile().baseRadius)}
             arrows="end"
-            label={formatInches(flippers.baseRadius)}
+            label={formatInches(profile().baseRadius)}
           />
         </Match>
 
@@ -156,23 +156,23 @@ export default function Annotations(props: Props) {
             class="highlight-shape"
             cx={left().tip.x}
             cy={left().tip.y}
-            r={flippers.tipRadius}
+            r={profile().tipRadius}
             vector-effect="non-scaling-stroke"
           />
           <LinearDimension
             a={left().tip}
-            b={along(left().tip, left().angle, flippers.tipRadius)}
+            b={along(left().tip, left().angle, profile().tipRadius)}
             arrows="end"
-            label={formatInches(flippers.tipRadius)}
+            label={formatInches(profile().tipRadius)}
           />
         </Match>
 
         <Match when={highlight() === 'flippers.length'}>
           <LinearDimension
-            a={along(left().pivot, left().angle, -flippers.baseRadius)}
-            b={along(left().tip, left().angle, flippers.tipRadius)}
+            a={along(left().pivot, left().angle, -profile().baseRadius)}
+            b={along(left().tip, left().angle, profile().tipRadius)}
             offset={-(contactBaseRadius() + 0.6)}
-            label={formatInches(flippers.length)}
+            label={formatInches(profile().length)}
           />
         </Match>
 
@@ -183,10 +183,10 @@ export default function Annotations(props: Props) {
             vector-effect="non-scaling-stroke"
           />
           <LinearDimension
-            a={along(left().tip, left().angle, flippers.tipRadius)}
+            a={along(left().tip, left().angle, profile().tipRadius)}
             b={along(left().tip, left().angle, contactTipRadius())}
             offset={contactTipRadius() + 0.6}
-            label={formatInches(flippers.rubberThickness)}
+            label={formatInches(profile().rubberThickness)}
           />
         </Match>
 
