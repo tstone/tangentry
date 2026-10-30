@@ -10,7 +10,7 @@ import {
   type Solution,
 } from '../state/solutions'
 import { isHit } from '../geometry/lane'
-import { isHovered, pathColor, setHoveredPath } from '../state/view'
+import { isHovered, outcomeClass, setHoveredPath } from '../state/view'
 import type { Departure } from '../physics/shot'
 import { MAX_FLEX } from '../physics/wall'
 import { clearLog, logEntries } from '../state/log'
@@ -135,9 +135,8 @@ function ShotResults(props: { shot: Shot; run: EndRun }) {
               })
               return (
                 <div
-                  class={`shot-state ${pathColor(state, flipper.states[state]).class}`}
+                  class={`shot-state ${outcomeClass(flipper.states[state])}`}
                   classList={{ 'is-hovered': isHovered(props.run.end, flipper.key, state) }}
-                  style={pathColor(state, flipper.states[state]).style}
                   onMouseEnter={() => setHoveredPath({ end: props.run.end, flipper: flipper.key, state })}
                   onMouseLeave={() => setHoveredPath(null)}
                 >

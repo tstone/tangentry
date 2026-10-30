@@ -102,6 +102,9 @@ export function speedColor(speed: number) {
   return `rgb(${a.map((c, k) => Math.round(c + (b[k] - c) * t)).join(', ')})`
 }
 
+/** Class that sets `--path-color` to a solution's lane outcome, whatever the path coloring. */
+export const outcomeClass = (s: Solution | null | undefined) => `outcome--${s?.lane?.outcome ?? 'none'}`
+
 /**
  * Class and inline style that set `--path-color` for a solution under the
  * current coloring. Speed coloring uses the departure speed for parts of the
@@ -112,7 +115,7 @@ export function pathColor(state: BallState, s: Solution | null | undefined) {
     case 'origin':
       return { class: `origin--${state}`, style: {} }
     case 'smoothness':
-      return { class: `outcome--${s?.lane?.outcome ?? 'none'}`, style: {} }
+      return { class: outcomeClass(s), style: {} }
     case 'speed':
       return { class: '', style: s ? { '--path-color': speedColor(s.speed) } : {} }
   }
