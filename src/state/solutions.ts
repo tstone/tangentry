@@ -334,6 +334,10 @@ export type Lane = {
   // alignment when that one has no solution. Null for a fed entrance,
   // which lines up with the lane end feeding it.
   alignedTo: LaneAlignment | null
+  // For an entrance split between the main pair, the ball path off the
+  // other flipper it's lined up with too; null if it isn't split, or that
+  // flipper has no shot to it.
+  splitWith: LaneAlignment | null
   // False when the flipper chosen for the entrance has no ball path to it,
   // so the entrance points straight from that flipper's pivot instead.
   reached: boolean
@@ -343,6 +347,7 @@ export type Lane = {
   exitLinedUp: boolean
   // Solution the exit is lined up with, as for the entrance.
   exitAlignedTo: LaneAlignment | null
+  exitSplitWith: LaneAlignment | null
   // As `reached`, for the exit.
   exitReached: boolean
   // The ball is wider than the lane.
@@ -456,21 +461,43 @@ export type Inlet = { solved: FlipperSolutions[]; from: Exit | null }
  * (`pinned`) is never swapped for another: when none of its ball paths
  * reach the end, the lane points straight from its pivot, unreached. Null if
  * no ball path reaches it.
+ *
+ * With `split`, a ball path off one of the main pair is lined up with
+ * together with the same kind of shot off the other: the end points midway
+ * between the two, `splitWith` naming the other. Without a shot off the
+ * other, it lines up with the one alone.
  */
-function inletDirection(at: Point, alignment: LaneAlignment, inlet: Inlet, pinned: boolean) {
+function inletDirection(at: Point, alignment: LaneAlignment, inlet: Inlet, pinned: boolean, split: boolean) {
+  const none = { splitWith: null }
   if (inlet.from) {
     const from = exitSample(inlet.from)
     const across = { x: at.x - from.p.x, y: at.y - from.p.y }
-    return { dir: Math.hypot(across.x, across.y) > 1e-6 ? unit(across) : from.t, alignedTo: null, reached: true }
+    return { dir: Math.hypot(across.x, across.y) > 1e-6 ? unit(across) : from.t, alignedTo: null, reached: true, ...none }
   }
   const aligned = alignedSolution(alignment, inlet.solved)
   const key = alignment.slice(0, alignment.lastIndexOf('-'))
   const chosen = pinned ? inlet.solved.find((f) => f.key === key) : undefined
   if (chosen && !aligned?.alignedTo.startsWith(`${key}-`)) {
     const across = { x: at.x - chosen.pivot.x, y: at.y - chosen.pivot.y }
-    if (Math.hypot(across.x, across.y) > 1e-6) return { dir: unit(across), alignedTo: alignment, reached: false }
+    if (Math.hypot(across.x, across.y) > 1e-6) return { dir: unit(across), alignedTo: alignment, reached: false, ...none }
   }
-  return aligned && { dir: unit(aligned.solution.arrivalVelocity), alignedTo: aligned.alignedTo, reached: true }
+  if (!aligned) return null
+  const dir = unit(aligned.solution.arrivalVelocity)
+  const [alignedKey, state] = aligned.alignedTo.split('-') as [FlipperKey, BallState]
+  const otherKey = alignedKey === 'left' ? 'right' : alignedKey === 'right' ? 'left' : null
+  const other = split && otherKey ? inlet.solved.find((f) => f.key === otherKey)?.states[state] : null
+  if (other) {
+    const between = unit({ x: dir.x + unit(other.arrivalVelocity).x, y: dir.y + unit(other.arrivalVelocity).y })
+    return { dir: between, alignedTo: aligned.alignedTo, reached: true, splitWith: `${otherKey}-${state}` as LaneAlignment }
+  }
+  return { dir, alignedTo: aligned.alignedTo, reached: true, ...none }
+}
+
+/** `dir` (SVG coordinates) turned `degrees` counter-clockwise as seen on screen. */
+export const turnOnScreen = (dir: Point, degrees: number): Point => {
+  const a = toRadians(degrees)
+  // SVG y points down, so a counter-clockwise turn on screen is clockwise in SVG terms.
+  return { x: dir.x * Math.cos(a) + dir.y * Math.sin(a), y: -dir.x * Math.sin(a) + dir.y * Math.cos(a) }
 }
 
 /** Furthest a lane `width` wide can sit off to one side of the ball coming into it, inches. */
@@ -491,21 +518,25 @@ const pinnedFlipper = (shot: Shot, end: ShotEnd) => originOf(shot, end).flipper 
 export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = null): Lane | null {
   const entrance = { x: shot.entrance.x, y: playfield.height - shot.entrance.y }
   const exit = { x: shot.exit.x, y: playfield.height - shot.exit.y }
-  const into = inletDirection(entrance, shotAlignment(shot), inlet, pinnedFlipper(shot, 'entrance'))
+  const into = inletDirection(entrance, shotAlignment(shot), inlet, pinnedFlipper(shot, 'entrance'), shot.split)
   if (!into) return null
-  const startDir = into.dir
+  // Each end turns from the way the ball comes in by its pivot, about where
+  // the ball crosses its mouth.
+  const startDir = turnOnScreen(into.dir, shot.entrancePivot)
   const back =
     shot.end === 'double' && exitInlet
-      ? inletDirection(exit, shotAlignment(shot, 'exit'), exitInlet, pinnedFlipper(shot, 'exit'))
+      ? inletDirection(exit, shotAlignment(shot, 'exit'), exitInlet, pinnedFlipper(shot, 'exit'), shot.exitOrigin.split)
       : null
   const exitAngle = toRadians(shot.exit.angle)
-  const endDir = back
-    ? { x: -back.dir.x, y: -back.dir.y }
+  const backInto = back && turnOnScreen(back.dir, shot.exitPivot)
+  const endDir = backInto
+    ? { x: -backInto.x, y: -backInto.y }
     : // Screen angles are counter-clockwise; SVG y points down.
       { x: Math.cos(exitAngle), y: -Math.sin(exitAngle) }
-  // The lane can sit off to one side of where the ball enters, but no
-  // further than keeps the ball clear of its walls: an offset set on a
-  // wider lane holds only as far as the lane's width now allows.
+  // The lane can sit off to one side of where the ball enters, measured
+  // across its mouth, but no further than keeps the ball clear of its
+  // walls: an offset set on a wider lane holds only as far as the lane's
+  // width now allows.
   const entranceOffset = fitOffset(shot.entranceOffset, shot.entranceWidth)
   const start = {
     x: entrance.x - normal(startDir).x * entranceOffset,
@@ -584,9 +615,11 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
     pieces,
     walls: laneWalls,
     alignedTo: into.alignedTo,
+    splitWith: into.splitWith,
     reached: into.reached,
     exitLinedUp: back !== null,
     exitAlignedTo: back?.alignedTo ?? null,
+    exitSplitWith: back?.splitWith ?? null,
     exitReached: back?.reached ?? true,
     tooNarrow: Math.min(width.entrance, width.exit) <= ball.diameter,
     overRail: Math.max(

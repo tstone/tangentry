@@ -149,6 +149,35 @@ function LaneNotes(props: { shot: Shot }) {
               </p>
             )}
           </Show>
+          <For each={double() ? (['entrance', 'exit'] as const) : (['entrance'] as const)}>
+            {(end) => {
+              const alignedTo = () => (end === 'entrance' ? l().alignedTo : l().exitAlignedTo)
+              const splitWith = () => (end === 'entrance' ? l().splitWith : l().exitSplitWith)
+              const where = double() ? ` the ${end}` : ''
+              return (
+                <Show when={originOf(props.shot, end).split && feedChain(props.shot, end).length === 0 && alignedTo()}>
+                  {(a) => (
+                    <Show
+                      when={splitWith()}
+                      fallback={
+                        <p class="shot-solution-none">
+                          No matching shot off the other flipper reaches{where || ' the lane'}, so it lines up with{' '}
+                          {label(a(), end)} alone.
+                        </p>
+                      }
+                    >
+                      {(b) => (
+                        <p class="shot-solution-note">
+                          Lined up{where && ` at${where}`} midway between {flipperLabel(a(), end)} and{' '}
+                          {flipperLabel(b(), end)}.
+                        </p>
+                      )}
+                    </Show>
+                  )}
+                </Show>
+              )
+            }}
+          </For>
           <Show when={l().tooNarrow}>
             <p class="shot-solution-none">The lane is narrower than the ball.</p>
           </Show>
@@ -184,6 +213,32 @@ function LaneNotes(props: { shot: Shot }) {
   )
 }
 
+// Furthest a lane end pivots from the ball, degrees, either way.
+const PIVOT_RANGE = 45
+
+/** How far one end of the lane turns from the way the ball comes into it. */
+function PivotField(props: { value: number; onChange: (pivot: number) => void }) {
+  return (
+    <>
+      <SliderField
+        label="Pivot"
+        min={-PIVOT_RANGE}
+        max={PIVOT_RANGE}
+        step={0.5}
+        centered
+        value={props.value}
+        format={(v) => formatDegrees(Math.abs(v))}
+        ends={['clockwise', 'counter-clockwise']}
+        onChange={props.onChange}
+      />
+      <p class="field-note">
+        Turns the lane from the ball's line about where the ball crosses the mouth, so the ball comes in at an angle,
+        as into an orbit that follows the side rail.
+      </p>
+    </>
+  )
+}
+
 function LaneShaping(props: { shot: Shot }) {
   // Far enough to put the ball against either wall at the mouth.
   const maxOffset = () => laneMaxOffset(props.shot.entranceWidth)
@@ -199,6 +254,10 @@ function LaneShaping(props: { shot: Shot }) {
         format={formatSigned}
         ends={['ball nearer left wall', 'nearer right wall']}
         onChange={(entranceOffset) => updateShot(props.shot.id, { entranceOffset })}
+      />
+      <PivotField
+        value={props.shot.entrancePivot}
+        onChange={(entrancePivot) => updateShot(props.shot.id, { entrancePivot })}
       />
       <SliderField
         label="Straight lead-in"
@@ -324,6 +383,13 @@ function WallMounts(props: { shot: Shot; side: WallSide; label: string }) {
   )
 }
 
+// Whether a lane end lines up with the ball path off its flipper, or
+// midway between that and the same shot off the other main flipper.
+const LINE_UP_OPTIONS: { label: string; value: 'path' | 'split' }[] = [
+  { label: "This flipper's ball path", value: 'path' },
+  { label: 'Split between both flippers', value: 'split' },
+]
+
 // A flipper to shoot from, or a lane end feeding this one, chosen as
 // `feed-${id}-${end}`.
 type OriginChoice = TargetFlipper | `feed-${number}-${ShotEnd}`
@@ -375,6 +441,12 @@ function OriginField(props: { shot: Shot; end: ShotEnd }) {
           options={BALL_STATE_OPTIONS}
           value={origin().ballState}
           onChange={(ballState) => setOrigin(props.shot.id, props.end, { ballState })}
+        />
+        <SelectField
+          label="Line up with"
+          options={LINE_UP_OPTIONS}
+          value={origin().split ? 'split' : 'path'}
+          onChange={(choice) => setOrigin(props.shot.id, props.end, { split: choice === 'split' })}
         />
       </Show>
       <Show when={chain().length > 0}>
@@ -639,6 +711,10 @@ function ShotCard(props: { shot: Shot }) {
             format={formatSigned}
             ends={['ball nearer left wall', 'nearer right wall']}
             onChange={(exitOffset) => updateShot(props.shot.id, { exitOffset })}
+          />
+          <PivotField
+            value={props.shot.exitPivot}
+            onChange={(exitPivot) => updateShot(props.shot.id, { exitPivot })}
           />
           <SliderField
             label="Straight lead-in"

@@ -182,8 +182,23 @@ function readExitOrigin(input: unknown, exit: Entrance, centerLine: number, path
   // Missing from files saved before lanes could be double-ended.
   if (input === undefined) return { ...DEFAULT_ORIGIN }
   const o = object(input, path)
-  return { ...readTarget(o, exit, centerLine, path), feed: readFeed(o.feed, `${path}.feed`) }
+  return {
+    ...readTarget(o, exit, centerLine, path),
+    split: readSplit(o.split, `${path}.split`),
+    feed: readFeed(o.feed, `${path}.feed`),
+  }
 }
+
+/** Whether a lane end lines up between both main flippers' ball paths. */
+function readSplit(input: unknown, path: string): boolean {
+  // Missing from files saved before lane ends could be split.
+  if (input === undefined) return false
+  if (typeof input !== 'boolean') throw new Error(`${path} should be true or false.`)
+  return input
+}
+
+// Missing from files saved before lane ends could pivot.
+const readPivot = (input: unknown, path: string) => (input === undefined ? 0 : number(input, path))
 
 /**
  * A shot, and the shot whose exit its own was joined to in files saved
@@ -226,10 +241,13 @@ function readShot(input: unknown, path: string, centerLine: number): { shot: Sho
     entranceWeight: number(s.entranceWeight, `${path}.entranceWeight`),
     exitWeight: number(s.exitWeight, `${path}.exitWeight`),
     ...readTarget(s, entrance, centerLine, path),
+    split: readSplit(s.split, `${path}.split`),
     entranceOffset: number(s.entranceOffset, `${path}.entranceOffset`),
+    entrancePivot: readPivot(s.entrancePivot, `${path}.entrancePivot`),
     leadIn: number(s.leadIn, `${path}.leadIn`),
     // Missing from files saved before a double-ended lane's exit had its own.
     exitOffset: s.exitOffset === undefined ? 0 : number(s.exitOffset, `${path}.exitOffset`),
+    exitPivot: readPivot(s.exitPivot, `${path}.exitPivot`),
     exitLeadIn: s.exitLeadIn === undefined ? 0 : number(s.exitLeadIn, `${path}.exitLeadIn`),
     funnelLength: s.funnelLength ?? Infinity,
     via: s.via.map((v, i) => {
@@ -302,9 +320,10 @@ function mergeJoined(read: { shot: Shot; link: number | null }[]): Shot[] {
       exitWidth: b.entranceWidth,
       exitWeight: b.entranceWeight,
       exitOffset: b.entranceOffset,
+      exitPivot: b.entrancePivot,
       exitLeadIn: b.leadIn,
       end: 'double',
-      exitOrigin: { flipper: b.flipper, ballState: b.ballState, feed: b.feed },
+      exitOrigin: { flipper: b.flipper, ballState: b.ballState, split: b.split, feed: b.feed },
       // A ramp is single-ended, so the pair stays on the playfield.
       ramp: false,
       mounts: {

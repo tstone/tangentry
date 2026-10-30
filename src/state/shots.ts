@@ -45,6 +45,10 @@ export type Origin = {
   // this way. An extra flipper's ball only rolls in.
   flipper: TargetFlipper
   ballState: BallState
+  // Line the end up between the ball paths off both main flippers, as a
+  // center shot made off either is, instead of with this one's alone. Only
+  // for the main pair's shots.
+  split: boolean
   // The lane whose end feeds this one: the ball leaves that lane, crosses
   // open playfield and comes into this one, as where a lane is cut to
   // leave room for balls on their way to other shots. A fed end isn't shot
@@ -79,15 +83,22 @@ export type Shot = {
   // Where the ball comes into the entrance from, as an Origin.
   flipper: TargetFlipper
   ballState: BallState
+  split: boolean
   feed: Feed | null
   // How far the lane's center sits from the ball where it enters, inches.
   // Positive puts the ball nearer the right wall.
   entranceOffset: number
+  // How far the lane turns from the way the ball comes into it, degrees,
+  // counter-clockwise on screen, about where the ball crosses the mouth.
+  // The ball then crosses the mouth at an angle, as into an orbit whose
+  // line is set by the side rail.
+  entrancePivot: number
   // Straight run before the lane starts to bend, inches.
   leadIn: number
-  // A double-ended lane's exit is offset and led into the same way, as seen
-  // by the ball coming in there. Unused for other lanes.
+  // A double-ended lane's exit is offset, pivoted and led into the same
+  // way, as seen by the ball coming in there. Unused for other lanes.
   exitOffset: number
+  exitPivot: number
   exitLeadIn: number
   // Distance from the entrance over which the lane narrows to the exit
   // width, inches. Infinity spreads it over the whole lane.
@@ -157,7 +168,7 @@ let nextViaId = 1
 
 export const DEFAULT_HORSESHOE: Horseshoe = { rotation: 180, radius: 2.5 }
 
-export const DEFAULT_ORIGIN: Origin = { flipper: 'auto', ballState: 'inlane', feed: null }
+export const DEFAULT_ORIGIN: Origin = { flipper: 'auto', ballState: 'inlane', split: false, feed: null }
 
 /** The ends of a shot's lane the ball can be shot into: the entrance, and the exit if it's double-ended. */
 export const shotEnds = (shot: Shot): ShotEnd[] => (shot.end === 'double' ? ['entrance', 'exit'] : ['entrance'])
@@ -166,7 +177,12 @@ export const otherEnd = (end: ShotEnd): ShotEnd => (end === 'entrance' ? 'exit' 
 
 /** Where the ball comes into one end of a shot's lane from. */
 export const originOf = (shot: Shot, end: ShotEnd): Origin =>
-  end === 'entrance' ? { flipper: shot.flipper, ballState: shot.ballState, feed: shot.feed } : shot.exitOrigin
+  end === 'entrance'
+    ? { flipper: shot.flipper, ballState: shot.ballState, split: shot.split, feed: shot.feed }
+    : shot.exitOrigin
+
+/** How far one end of a shot's lane turns from the way the ball comes into it, degrees. */
+export const pivotOf = (shot: Shot, end: ShotEnd) => (end === 'entrance' ? shot.entrancePivot : shot.exitPivot)
 
 /** Where one end of a shot's lane is. */
 export const endPoint = (shot: Shot, end: ShotEnd): Entrance =>
@@ -202,10 +218,13 @@ export const shotDefaults = (entrance: Entrance): Shot => ({
   exitWeight: 1,
   flipper: 'auto',
   ballState: 'inlane',
+  split: false,
   ramp: false,
   entranceOffset: 0,
+  entrancePivot: 0,
   leadIn: 0,
   exitOffset: 0,
+  exitPivot: 0,
   exitLeadIn: 0,
   funnelLength: Infinity,
   via: [],
@@ -418,7 +437,7 @@ function stopFeeding(id: number, end?: ShotEnd) {
 }
 
 /** Change the ball path one end of a shot is lined up with. */
-export function setOrigin(id: number, end: ShotEnd, changes: Partial<Pick<Origin, 'flipper' | 'ballState'>>) {
+export function setOrigin(id: number, end: ShotEnd, changes: Partial<Pick<Origin, 'flipper' | 'ballState' | 'split'>>) {
   if (end === 'entrance') setShots((shot) => shot.id === id, changes)
   else setShots((shot) => shot.id === id, 'exitOrigin', changes)
 }
@@ -436,8 +455,10 @@ export function updateShot(
       | 'entranceWeight'
       | 'exitWeight'
       | 'entranceOffset'
+      | 'entrancePivot'
       | 'leadIn'
       | 'exitOffset'
+      | 'exitPivot'
       | 'exitLeadIn'
       | 'funnelLength'
     >

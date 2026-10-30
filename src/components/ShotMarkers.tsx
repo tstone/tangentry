@@ -17,7 +17,14 @@ import {
   type Shot,
   type ShotEnd,
 } from '../state/shots'
-import { fitOffset, laneExit, leavingExit, maxOffset as laneMaxOffset, shotAnalyses } from '../state/solutions'
+import {
+  fitOffset,
+  laneExit,
+  leavingExit,
+  maxOffset as laneMaxOffset,
+  shotAnalyses,
+  turnOnScreen,
+} from '../state/solutions'
 import { hoveredShot, setHoveredShot } from '../state/view'
 import { focusOn, focusedPart, type FocusPart } from '../state/focus'
 import type { Point } from '../geometry/flipper'
@@ -35,6 +42,13 @@ const DIRECTION_RADIUS = 0.18
 const DIRECTION_LENGTH = 1.5
 const MIN_WEIGHT = 0.1
 const MAX_WEIGHT = 5
+// Furthest a lane end pivots from the ball, degrees, either way, as the
+// sidebar allows; the step it's dragged in; and how near lined up with the
+// ball a drag has to come to snap back to it, so pulling the weight arm
+// out doesn't pivot the lane by accident.
+const MAX_PIVOT = 45
+const PIVOT_STEP = 0.5
+const PIVOT_SNAP = 2
 // How far back out of the lane, toward where the ball comes from, the
 // offset slider runs across a lane end's mouth, in inches.
 const OFFSET_RAIL_BACK = 1
@@ -310,6 +324,7 @@ function EndControls(props: { shot: Shot; end: ShotEnd; focused: boolean; grab: 
   const offset = () => fitOffset(atEntrance() ? shot.entranceOffset : shot.exitOffset, width())
   const leadIn = () => (atEntrance() ? shot.leadIn : shot.exitLeadIn)
   const weight = () => (atEntrance() ? shot.entranceWeight : shot.exitWeight)
+  const pivot = () => (atEntrance() ? shot.entrancePivot : shot.exitPivot)
   // A double-ended lane's exit not lined up with any ball points the way it's
   // set, so its weight handle turns it too.
   const turns = () => !atEntrance() && !lane()?.exitLinedUp
@@ -347,8 +362,22 @@ function EndControls(props: { shot: Shot; end: ShotEnd; focused: boolean; grab: 
         updateShot(shot.id, { exitWeight: roundWeight((Math.hypot(d.x, d.y) - leadIn()) / DIRECTION_LENGTH) })
         return
       }
-      const w = roundWeight(dot(svgFrom(p, leadInEnd(m)), m.t) / DIRECTION_LENGTH)
-      updateShot(shot.id, atEntrance() ? { entranceWeight: w } : { exitWeight: w })
+      // The arm runs out from the middle of the mouth, which sits `offset`
+      // across from where the ball crosses it: d = s·t − offset·normal(t),
+      // `s` along the lane. Solve that for the direction `t` the arm points
+      // to reach the pointer, and how far out along it the pointer is.
+      const d = svgFrom(p, point())
+      const o = offset()
+      const reach = dot(d, d)
+      if (reach <= o * o) return
+      const s = Math.sqrt(reach - o * o)
+      const t = { x: (s * d.x - o * d.y) / reach, y: (o * d.x + s * d.y) / reach }
+      // Pivot from the ball's way in to that, counter-clockwise on screen.
+      const ball = turnOnScreen(m.t, -pivot())
+      const turned = (-Math.atan2(ball.x * t.y - ball.y * t.x, dot(ball, t)) * 180) / Math.PI
+      const v = Math.abs(turned) < PIVOT_SNAP ? 0 : clamp(Math.round(turned / PIVOT_STEP) * PIVOT_STEP, -MAX_PIVOT, MAX_PIVOT)
+      const w = roundWeight((s - leadIn()) / DIRECTION_LENGTH)
+      updateShot(shot.id, atEntrance() ? { entranceWeight: w, entrancePivot: v } : { exitWeight: w, exitPivot: v })
     })
   const dragOffset = (event: PointerEvent) =>
     grab(event, (p) => {
@@ -451,7 +480,10 @@ function EndControls(props: { shot: Shot; end: ShotEnd; focused: boolean; grab: 
               onPointerDown={dragWeight}
             >
               <title>
-                {shot.name} {name()} {turns() ? 'direction and weight' : 'weight; the direction lines up with the ball'}
+                {shot.name} {name()}{' '}
+                {turns()
+                  ? 'direction and weight'
+                  : 'weight and pivot: drag out for weight, swing around to turn the lane from the ball'}
               </title>
             </circle>
           </>

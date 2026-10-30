@@ -11,6 +11,7 @@ import {
   setHorseshoe,
   shots,
   updateShot,
+  type LaneAlignment,
   type Shot,
 } from './shots'
 import { analyze, inflowOf, type ShotAnalysis } from './solutions'
@@ -25,9 +26,26 @@ import type { CurveSample, LaneOutcome, LaneRun } from '../geometry/lane'
 // the ball leaves in. Where the lane meets the turn slides around it, and a
 // bend point is tried before the exit to lead the ball into it, as an
 // easement would.
+//
+// Each end the ball is shot into can pivot away from the ball as well as
+// sit off to one side of it. The two work together, a pivot swinging the
+// lane about where the ball crosses the mouth and the offset moving it
+// across, so they're first searched together on a coarse grid, then
+// nudged with the rest. A pivot costs a little, so the lane only turns
+// from the ball where that buys a smoother ride.
 type Params = Pick<
   Shot,
-  'entranceOffset' | 'leadIn' | 'entranceWeight' | 'exitWeight' | 'funnelLength' | 'via' | 'exit' | 'horseshoe'
+  | 'entranceOffset'
+  | 'entrancePivot'
+  | 'leadIn'
+  | 'entranceWeight'
+  | 'exitWeight'
+  | 'exitOffset'
+  | 'exitPivot'
+  | 'funnelLength'
+  | 'via'
+  | 'exit'
+  | 'horseshoe'
 >
 
 const OUTCOME_COST: Record<LaneOutcome, number> = {
@@ -50,6 +68,14 @@ const FOLD_COST = 500
 const ALIGNED_WEIGHT = 2
 // Closest the entrance offset comes to the most it can be, inches, either way.
 const OFFSET_MARGIN = 0.2
+// Furthest an end pivots from the ball, degrees, either way; the cost per
+// degree it does, as much as a bounce back off a wall at 1 in/s; and the
+// pivots and fractions of the offset reach tried together to start from.
+const PIVOT_REACH = 30
+const PIVOT_COST = 1
+const SEED_PIVOTS = [-20, -15, -10, -5, 0, 5, 10, 15, 20]
+const SEED_OFFSETS = [-1, -0.5, 0, 0.5, 1]
+const PIVOT_PRECISION = 0.5
 // Furthest a bend point moves from where it was, inches, either way.
 const VIA_REACH = 2
 // Furthest a bend point added to lead into a horseshoe moves from where it
@@ -87,11 +113,13 @@ export function roughness(shot: Shot, analysis: ShotAnalysis): number {
   let cost = RAIL_COST * lane.overRail
   if (lane.tightest.radius < Math.max(shot.entranceWidth, shot.exitWidth) / 2) cost += FOLD_COST
   for (const run of analysis.runs) {
-    const alignedTo = run.end === 'entrance' ? lane.alignedTo : lane.exitAlignedTo
+    // A split end is for both the paths it's lined up between.
+    const aligned =
+      run.end === 'entrance' ? [lane.alignedTo, lane.splitWith] : [lane.exitAlignedTo, lane.exitSplitWith]
     for (const f of run.flippers) {
       for (const [state, s] of Object.entries(f.states)) {
         if (!s) continue
-        cost += runCost(s.lane) * (`${f.key}-${state}` === alignedTo ? ALIGNED_WEIGHT : 1)
+        cost += runCost(s.lane) * (aligned.includes(`${f.key}-${state}` as LaneAlignment) ? ALIGNED_WEIGHT : 1)
       }
     }
   }
@@ -159,17 +187,22 @@ export async function smoothen(
   // through them.
   const inflow = inflowOf(live)
   const exitInflow = live.end === 'double' ? inflowOf(live, 'exit') : null
+  const double = shot.end === 'double'
   const evaluate = (params: Params) => {
     const candidate = { ...shot, ...params }
     const analysis = analyze(candidate, inflow, exitInflow)
-    return { cost: roughness(candidate, analysis), analysis }
+    const pivot = Math.abs(params.entrancePivot) + (double ? Math.abs(params.exitPivot) : 0)
+    return { cost: roughness(candidate, analysis) + PIVOT_COST * pivot, analysis }
   }
 
   const initial: Params = {
     entranceOffset: shot.entranceOffset,
+    entrancePivot: shot.entrancePivot,
     leadIn: shot.leadIn,
     entranceWeight: shot.entranceWeight,
     exitWeight: shot.exitWeight,
+    exitOffset: shot.exitOffset,
+    exitPivot: shot.exitPivot,
     funnelLength: shot.funnelLength,
     via: shot.via.map((v) => ({ ...v })),
     exit: { ...shot.exit },
@@ -181,10 +214,41 @@ export async function smoothen(
   // The funnel is searched as a length within the lane; the far end means
   // the whole lane, however long it ends up.
   const laneLength = lane.exitDistance
-  const maxOffset = Math.max(0, shot.entranceWidth / 2 - ball.diameter / 2)
-  // The entrance is kept back from the most it can be offset.
-  const offsetReach = Math.max(0, maxOffset - OFFSET_MARGIN)
+  // Each end is kept back from the most it can be offset.
+  const offsetReach = (width: number) => Math.max(0, width / 2 - ball.diameter / 2 - OFFSET_MARGIN)
   const horseshoe = shot.end === 'horseshoe'
+
+  // How each end the ball is shot into sits on the ball: off to one side
+  // and turned from it. A double-ended lane's exit only has a ball to sit on
+  // while one lines up with it.
+  type EndKnobs = { offset: Knob; pivot: Knob; reach: number }
+  const endKnobs = (offset: 'entranceOffset' | 'exitOffset', pivot: 'entrancePivot' | 'exitPivot', width: number) => {
+    const reach = offsetReach(width)
+    return {
+      offset: {
+        get: (p) => p[offset],
+        set: (p, v) => ({ ...p, [offset]: v }),
+        min: -reach,
+        max: reach,
+        step: reach / 4,
+        precision: INCH_PRECISION,
+      },
+      pivot: {
+        get: (p) => p[pivot],
+        set: (p, v) => ({ ...p, [pivot]: v }),
+        // A pivot set further by hand can still come back in.
+        min: Math.min(-PIVOT_REACH, shot[pivot]),
+        max: Math.max(PIVOT_REACH, shot[pivot]),
+        step: 5,
+        precision: PIVOT_PRECISION,
+      },
+      reach,
+    } satisfies EndKnobs
+  }
+  const ends: EndKnobs[] = [
+    endKnobs('entranceOffset', 'entrancePivot', shot.entranceWidth),
+    ...(double && lane.exitLinedUp ? [endKnobs('exitOffset', 'exitPivot', shot.exitWidth)] : []),
+  ]
 
   const viaKnobs = (via: Params['via'], reach: (i: number) => number): Knob[] =>
     via.flatMap((point, i): Knob[] =>
@@ -199,14 +263,7 @@ export async function smoothen(
     )
 
   const knobs: Knob[] = [
-    {
-      get: (p) => p.entranceOffset,
-      set: (p, v) => ({ ...p, entranceOffset: v }),
-      min: -offsetReach,
-      max: offsetReach,
-      step: offsetReach / 4,
-      precision: INCH_PRECISION,
-    },
+    ...ends.flatMap((end) => [end.offset, end.pivot]),
     { get: (p) => p.leadIn, set: (p, v) => ({ ...p, leadIn: v }), min: 0, max: 8, step: 1, precision: INCH_PRECISION },
     {
       get: (p) => p.entranceWeight,
@@ -259,14 +316,17 @@ export async function smoothen(
     })
   }
 
-  // Lane shapes tried so far, across both searches.
+  // Lane shapes tried so far, across the seeding and both searches, and
+  // the most there'll be.
   let evaluations = 0
+  const seeds = ends.length * SEED_PIVOTS.length * SEED_OFFSETS.length
+  const most = seeds + MAX_EVALUATIONS
   // Hands the browser back the thread now and then, so the page can show
   // the search going on.
   let lastYield = performance.now()
   const breathe = async () => {
     if (performance.now() - lastYield < YIELD_INTERVAL) return
-    onProgress?.(evaluations, MAX_EVALUATIONS)
+    onProgress?.(evaluations, most)
     await new Promise((resolve) => setTimeout(resolve, 0))
     lastYield = performance.now()
   }
@@ -302,11 +362,37 @@ export async function smoothen(
     return { params: best, cost: bestCost, analysis: bestAnalysis }
   }
 
+  // Pivot and offset each end together over a coarse grid, one end after
+  // the other, to start the search from the best of them. Nudged one at a
+  // time from where they're set, either alone would often make things
+  // worse where the two together would help.
+  let seeded = initial
+  let seededCost = start.cost
+  for (const end of ends) {
+    const from = seeded
+    for (const pivot of SEED_PIVOTS) {
+      for (const fraction of SEED_OFFSETS) {
+        if (seededCost === 0) break
+        const offset = snap(fraction * end.reach, INCH_PRECISION)
+        const candidate = end.pivot.set(end.offset.set(from, offset), pivot)
+        const { cost } = evaluate(candidate)
+        evaluations++
+        await breathe()
+        if (cost < seededCost) {
+          seeded = candidate
+          seededCost = cost
+        }
+      }
+    }
+  }
+  // Seeding stops early on a lane with no rough paths; the searches get its share either way.
+  evaluations = seeds
+
   // A horseshoe lane saves some of the budget for trying a bend point.
   let result = await descend(
-    initial,
+    seeded,
     [...knobs, ...viaKnobs(initial.via, () => VIA_REACH)],
-    horseshoe ? MAX_EVALUATIONS - APPROACH_EVALUATIONS : MAX_EVALUATIONS,
+    horseshoe ? most - APPROACH_EVALUATIONS : most,
   )
   let addedVia = false
 
@@ -321,12 +407,17 @@ export async function smoothen(
     const stretchStart = last ? nearest((q) => Math.hypot(q.p.x - last.x, q.p.y - (playfield.height - last.y))).s : 0
     const target = exitDistance - Math.min(APPROACH_RADII * shot.horseshoe.radius, (exitDistance - stretchStart) / 2)
     const at = nearest((q) => Math.abs(q.s - target))
-    const point = { id: NEW_VIA_ID, x: snap(at.p.x, INCH_PRECISION), y: snap(playfield.height - at.p.y, INCH_PRECISION) }
+    const point = {
+      id: NEW_VIA_ID,
+      x: snap(at.p.x, INCH_PRECISION),
+      y: snap(playfield.height - at.p.y, INCH_PRECISION),
+      weight: 1,
+    }
     // Bend points already there keep to their reach from where they were drawn.
     const withPoint = await descend(
       { ...result.params, via: [...result.params.via, point] },
       [...knobs, ...viaKnobs([...initial.via, point], (i) => (i === initial.via.length ? APPROACH_REACH : VIA_REACH))],
-      MAX_EVALUATIONS,
+      most,
     )
     if (withPoint.cost < result.cost) {
       result = withPoint
