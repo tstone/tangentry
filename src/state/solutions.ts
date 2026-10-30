@@ -7,6 +7,7 @@ import { inlanes } from './inlanes'
 import { ball } from './ball'
 import { walls } from './walls'
 import { reservedBlocking } from './reserved'
+import { focusedPart } from './focus'
 import {
   endPoint,
   feedChain,
@@ -836,3 +837,22 @@ export const selectedAnalysis = createRoot(() =>
 
 /** The selected shot's ball paths, into each end it's shot into. */
 export const selectedRuns = () => selectedAnalysis()?.runs ?? []
+
+// The end of the selected shot whose ball paths are shown: the end last
+// picked out on it, so picking a bend point keeps the same end in view.
+// Back to the entrance whenever another shot is selected.
+export const viewedEnd = createRoot(() => {
+  let shot: number | null = null
+  let end: ShotEnd = 'entrance'
+  return createMemo(() => {
+    const id = selectedId()
+    const part = id === null ? null : focusedPart('shot', id)
+    if (id !== shot) end = 'entrance'
+    shot = id
+    if (part === 'entrance' || part === 'exit') end = part
+    return end
+  })
+})
+
+/** The selected shot's ball paths into the end in view. */
+export const viewedRuns = () => selectedRuns().filter((run) => run.end === viewedEnd())

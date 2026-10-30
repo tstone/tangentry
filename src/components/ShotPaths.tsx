@@ -1,6 +1,6 @@
 import { For, Index, Show } from 'solid-js'
 import { ball } from '../state/ball'
-import { BALL_STATES, OUTCOME_LABELS, selectedRuns, stateLabel } from '../state/solutions'
+import { BALL_STATES, OUTCOME_LABELS, stateLabel, viewedRuns } from '../state/solutions'
 import { hoveredPath, isHovered, pathColor, pathColoring, speedColor } from '../state/view'
 import { flipperPath, type Point } from '../geometry/flipper'
 import { isHit } from '../geometry/lane'
@@ -39,11 +39,11 @@ function PathLine(props: { class: string; path: Point[]; speeds: number[] }) {
   )
 }
 
-/** Solved trajectories into each end of the selected shot. Must be rendered inside the preview SVG. */
+/** Solved trajectories into the end in view of the selected shot. Must be rendered inside the preview SVG. */
 export default function ShotPaths() {
   return (
     <g class="shot-paths" classList={{ 'has-hover': hoveredPath() !== null }}>
-      <For each={selectedRuns().flatMap((run) => run.flippers.map((flipper) => ({ end: run.end, flipper })))}>
+      <For each={viewedRuns().flatMap((run) => run.flippers.map((flipper) => ({ end: run.end, flipper })))}>
         {({ end, flipper }) => (
           <For each={BALL_STATES}>
             {({ state }) => (

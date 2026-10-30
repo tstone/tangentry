@@ -1,6 +1,6 @@
 import { createMemo, createRoot, createSignal } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import { selectedRuns, type BallState, type Solution } from './solutions'
+import { viewedRuns, type BallState, type Solution } from './solutions'
 import type { FlipperKey, ShotEnd } from './shots'
 
 // What the shot paths are colored by:
@@ -62,12 +62,12 @@ export { hoveredReserved, setHoveredReserved }
 /** Every speed along a solution's path, flipper to lane exit. */
 export const pathSpeeds = (s: Solution) => [...s.rideSpeeds, ...s.flightSpeeds, ...(s.lane?.speeds ?? [])]
 
-// Speeds across all of the selected shot's paths, so they share one scale.
+// Speeds across all of the shown paths, so they share one scale.
 export const speedRange = createRoot(() =>
   createMemo(() => {
     let min = Infinity
     let max = -Infinity
-    for (const flipper of selectedRuns().flatMap((run) => run.flippers)) {
+    for (const flipper of viewedRuns().flatMap((run) => run.flippers)) {
       for (const s of Object.values(flipper.states)) {
         if (!s) continue
         for (const v of pathSpeeds(s)) {

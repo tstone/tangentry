@@ -3,7 +3,7 @@ import { feedChain, otherEnd, selectedShot, type Shot } from '../state/shots'
 import {
   BALL_STATES,
   OUTCOME_LABELS,
-  selectedRuns,
+  viewedRuns,
   stateLabel,
   targetFlipper,
   type EndRun,
@@ -200,12 +200,13 @@ export default function AnalysisTab() {
           {(shot) => (
             <>
               <h3 class="sidebar-heading">{shot().name}</h3>
-              <For each={selectedRuns()}>
+              <For each={viewedRuns()}>
                 {(run) => (
                   <>
-                    {/* A double-ended lane is shot into either end. */}
+                    {/* A double-ended lane is shot into either end, one shown at a time. */}
                     <Show when={shot().end === 'double'}>
                       <h3 class="sidebar-heading">Into the {run.end}</h3>
+                      <p class="field-note">Select the {otherEnd(run.end)} to see the shots into it.</p>
                     </Show>
                     <ShotResults shot={shot()} run={run} />
                   </>
