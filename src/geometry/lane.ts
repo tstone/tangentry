@@ -220,8 +220,8 @@ export type LaneRun = {
 }
 
 // Distance the ball travels per simulation step, inches.
-const STEP_LENGTH = 0.05
-const MAX_STEPS = 4000
+const STEP_LENGTH = 0.03
+const MAX_STEPS = 20000
 // Below this speed into a wall (in/s), the ball stays on it and rolls along it.
 const RIDE_SPEED = 2
 
@@ -230,6 +230,12 @@ const RIDE_SPEED = 2
  * freely with `gravity` pulling toward +y and bouncing off the walls, which
  * return `restitution` of the speed into them. Spin and wall friction are
  * ignored. Returns null if the lane is too narrow for the ball.
+ *
+ * Each step the ball is placed relative to the center line. If it has gone
+ * further to either side than the ball's center can reach, it has hit that
+ * wall: it's moved back to the wall and bounces or rolls along it. Checking
+ * position rather than looking for the moment it crosses a wall means it
+ * can't slip through between wall segments.
  */
 export function runLane(
   curve: CurveSample[],
@@ -243,15 +249,42 @@ export function runLane(
   // The taper is linear, so the narrowest point is at one end.
   if (Math.min(width.entrance, width.exit) / 2 <= ballRadius || curve.length < 2) return null
 
-  // The ball center touches a wall when it reaches the wall pulled in by its radius.
-  const limits = [1, -1].map((side) => ({
-    side,
-    points: offsetCurve(curve, side, width, ballRadius),
-    wall: offsetCurve(curve, side, width),
-  }))
   const last = curve.length - 1
-  const exitMouth = [limits[0].points[last], limits[1].points[last]]
-  const entranceMouth = [limits[0].points[0], limits[1].points[0]]
+  const w = widths(curve, width)
+
+  // Where a point is relative to the center line: the segment it's beside,
+  // how far along that segment (beyond 0–1 past either end of the lane), and
+  // its frame there. Searches from the previous segment, since the ball
+  // moves only a little each step.
+  let segment = 0
+  const locate = (q: Point) => {
+    let i = segment
+    for (let tries = 0; tries < last; tries++) {
+      const u = dot(sub(q, curve[i].p), sub(curve[i + 1].p, curve[i].p)) / (curve[i + 1].s - curve[i].s) ** 2
+      if (u < 0 && i > 0) i--
+      else if (u > 1 && i < last - 1) i++
+      else break
+    }
+    segment = i
+    const a = curve[i]
+    const b = curve[i + 1]
+    const u = dot(sub(q, a.p), sub(b.p, a.p)) / (b.s - a.s) ** 2
+    const f = Math.min(1, Math.max(0, u))
+    const tangent = unit(sub(b.p, a.p))
+    const n = normal(tangent)
+    const center = add(a.p, scale(sub(b.p, a.p), f))
+    return {
+      i,
+      u,
+      f,
+      tangent,
+      n,
+      lateral: dot(sub(q, center), n),
+      halfWidth: (w[i] + (w[i + 1] - w[i]) * f) / 2,
+      distance: a.s + (b.s - a.s) * f,
+      center,
+    }
+  }
 
   let p = position
   let v = velocity
@@ -285,58 +318,38 @@ export function runLane(
   for (let step = 0; step < MAX_STEPS; step++) {
     const speed = Math.hypot(v.x, v.y)
     if (speed < 1e-3) return finish(null)
-    let dt = STEP_LENGTH / speed
-    // A step can include a few collisions; follow each in turn.
-    for (let k = 0; k < 8 && dt > 0; k++) {
-      const next = { x: p.x + v.x * dt, y: p.y + v.y * dt + 0.5 * gravity * dt * dt }
+    const dt = STEP_LENGTH / speed
+    p = { x: p.x + v.x * dt, y: p.y + v.y * dt + 0.5 * gravity * dt * dt }
+    v = { x: v.x, y: v.y + gravity * dt }
 
-      let best: { f: number; kind: 'wall' | 'exit' | 'entrance'; side: number; j: number; g: number } | null = null
-      const consider = (hit: { f: number; g: number } | null, kind: 'wall' | 'exit' | 'entrance', side = 0, j = 0) => {
-        if (hit && hit.f > 1e-9 && (!best || hit.f < best.f)) best = { f: hit.f, g: hit.g, kind, side, j }
-      }
-      for (const { side, points } of limits) {
-        for (let j = 0; j < points.length - 1; j++) {
-          consider(segmentIntersection(p, next, points[j], points[j + 1]), 'wall', side, j)
-        }
-      }
-      consider(segmentIntersection(p, next, exitMouth[0], exitMouth[1]), 'exit')
-      // Only rolling back out counts: the ball can start a hair short of the
-      // entrance and cross it going forward.
-      if (dot(v, curve[0].t) < 0) consider(segmentIntersection(p, next, entranceMouth[0], entranceMouth[1]), 'entrance')
+    const here = locate(p)
+    // Past the end of the center line: out through the exit, or back out
+    // through the entrance. The ball can start a hair short of the entrance,
+    // so only rolling back out counts.
+    if (here.i === last - 1 && here.u > 1) {
+      record()
+      return finish(Math.hypot(v.x, v.y))
+    }
+    if (here.i === 0 && here.u < 0 && dot(v, here.tangent) < 0) {
+      record()
+      return finish(null)
+    }
 
-      if (!best) {
-        p = next
-        v = { x: v.x, y: v.y + gravity * dt }
-        break
-      }
-
-      const hit: { f: number; kind: 'wall' | 'exit' | 'entrance'; side: number; j: number; g: number } = best
-      const tHit = dt * hit.f
-      p = { x: p.x + v.x * tHit, y: p.y + v.y * tHit + 0.5 * gravity * tHit * tHit }
-      v = { x: v.x, y: v.y + gravity * tHit }
-      dt -= tHit
-
-      if (hit.kind === 'exit') {
-        record()
-        return finish(Math.hypot(v.x, v.y))
-      }
-      if (hit.kind === 'entrance') {
-        record()
-        return finish(null)
-      }
-
-      const { points, wall } = limits.find((l) => l.side === hit.side)!
-      const tangent = unit(sub(points[hit.j + 1], points[hit.j]))
+    const reach = here.halfWidth - ballRadius
+    if (Math.abs(here.lateral) > reach) {
+      const side = Math.sign(here.lateral)
       // Points from the wall back into the lane.
-      const inward = scale(normal(tangent), -hit.side)
+      const inward = scale(here.n, -side)
+      // Back to where the ball meets the wall.
+      p = add(p, scale(inward, Math.abs(here.lateral) - reach))
       const into = -dot(v, inward)
       if (into > 0) {
-        const angle = Math.abs(Math.atan2(cross(tangent, v), dot(tangent, v)))
+        const angle = Math.abs(Math.atan2(cross(here.tangent, v), dot(here.tangent, v)))
         const contact: WallContact = {
-          wall: add(wall[hit.j], scale(sub(wall[hit.j + 1], wall[hit.j]), hit.g)),
+          wall: add(here.center, scale(here.n, side * here.halfWidth)),
           ball: p,
-          side: hit.side,
-          distance: curve[hit.j].s + (curve[hit.j + 1].s - curve[hit.j].s) * hit.g,
+          side,
+          distance: here.distance,
           impactAngle: (Math.min(angle, Math.PI - angle) * 180) / Math.PI,
           normalSpeed: into,
         }
@@ -349,22 +362,8 @@ export function runLane(
           bounces.push(contact)
         }
       }
-      // Step off the wall so the same crossing isn't found again.
-      p = add(p, scale(inward, 1e-6))
     }
     record()
   }
   return finish(null)
-}
-
-/** Where segments ab and cd cross, as fractions along each, or null. */
-function segmentIntersection(a: Point, b: Point, c: Point, d: Point) {
-  const r = sub(b, a)
-  const s = sub(d, c)
-  const denom = cross(r, s)
-  if (Math.abs(denom) < 1e-12) return null
-  const ac = sub(c, a)
-  const f = cross(ac, s) / denom
-  const g = cross(ac, r) / denom
-  return f >= 0 && f <= 1 && g >= 0 && g <= 1 ? { f, g } : null
 }
