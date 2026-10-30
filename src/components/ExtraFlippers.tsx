@@ -1,14 +1,18 @@
-import { For, onCleanup } from 'solid-js'
+import { For, Show, onCleanup } from 'solid-js'
+import { playfield } from '../state/playfield'
 import {
   extraFlippers,
+  flipperFeed,
   moveExtraFlipper,
+  PIVOT_SNAP,
   selectedFlipperId,
   setSelectedFlipperId,
+  updateExtraFlipper,
   type ExtraFlipper,
 } from '../state/extraFlippers'
 import { flipperShape } from '../state/flippers'
 import { extraFlipperLayout } from '../state/layout'
-import { resolvedExtraFlipper } from '../state/solutions'
+import { fedFlipperSettings, fedPivotToward, feedDistance, resolvedExtraFlipper } from '../state/solutions'
 import { hoveredFlipper, setHoveredFlipper } from '../state/view'
 import { flipperProfile } from '../physics/drive'
 import { flipperPath } from '../geometry/flipper'
@@ -28,6 +32,17 @@ function Body(props: { flipper: ExtraFlipper }) {
   const shape = () => flipperShape(stock())
   // A fed flipper points the way the ball comes out of the lane feeding it.
   const layout = () => extraFlipperLayout(resolvedExtraFlipper(props.flipper))
+  // A ball rolling back out of a lane onto the flipper: its way down the
+  // lane, then on across the playfield to where it crosses the flipper.
+  const rollBack = () => {
+    const f = props.flipper
+    const fed = flipperFeed(f) ? fedFlipperSettings(f) : null
+    const distance = feedDistance(f)
+    if (!fed?.rollBack || distance === null) return null
+    const { from, direction: d } = fed.line
+    const onto = { x: from.x + d.x * distance, y: playfield.height - (from.y + d.y * distance) }
+    return [...fed.rollBack.path, onto].map((p) => `${p.x},${p.y}`).join(' ')
+  }
   return (
     <g
       class="extra-flipper"
@@ -36,6 +51,9 @@ function Body(props: { flipper: ExtraFlipper }) {
         'is-selected': selectedFlipperId() === props.flipper.id,
       }}
     >
+      <Show when={rollBack()}>
+        {(points) => <polyline class="extra-flipper-roll-back" points={points()} vector-effect="non-scaling-stroke" />}
+      </Show>
       <path
         class="flipper"
         d={flipperPath(layout().pivot, shape().baseRadius, shape().tipRadius, shape().length, layout().angle)}
@@ -70,14 +88,18 @@ export function ExtraFlipperHandles() {
           onCleanup(() => {
             if (hoveredFlipper() === f.id) setHoveredFlipper(null)
           })
-          const pivot = () => extraFlipperLayout(f).pivot
+          const pivot = () => extraFlipperLayout(resolvedExtraFlipper(f)).pivot
           // Moves by how far the pointer goes, so grabbing off-center doesn't jump.
           const grab = (event: PointerEvent) => {
-            const start = { ...f.pivot }
+            const start = { ...resolvedExtraFlipper(f).pivot }
             let from: { x: number; y: number } | null = null
             const started = startDrag(event, (p) => {
               from ??= p
-              moveExtraFlipper(f.id, { x: start.x + p.x - from.x, y: start.y + p.y - from.y })
+              const to = { x: start.x + p.x - from.x, y: start.y + p.y - from.y }
+              // A fed flipper only slides along the way the ball comes out of the lane.
+              const fed = fedPivotToward(f, to, PIVOT_SNAP)
+              if (fed) updateExtraFlipper(f.id, { pivot: fed })
+              else moveExtraFlipper(f.id, to)
             })
             if (started) setSelectedFlipperId(f.id)
           }
@@ -92,7 +114,9 @@ export function ExtraFlipperHandles() {
               {...flipperHoverHandlers(f.id)}
               onPointerDown={grab}
             >
-              <title>{f.name}: drag to move</title>
+              <title>
+                {f.name}: {feedDistance(f) === null ? 'drag to move' : 'drag to slide along the lane feeding it'}
+              </title>
             </circle>
           )
         }}

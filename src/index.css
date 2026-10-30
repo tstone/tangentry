@@ -796,6 +796,21 @@ body {
   stroke: #ffb86b;
 }
 
+/* The ball rolling back out of a lane onto a fed flipper. */
+.extra-flipper-roll-back {
+  fill: none;
+  stroke: #ffb86b;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.extra-flipper.is-hovered .extra-flipper-roll-back,
+.extra-flipper.is-selected .extra-flipper-roll-back {
+  opacity: 0.9;
+}
+
 .extra-flipper-label {
   fill: #ffb86b;
   font-size: 0.5px;

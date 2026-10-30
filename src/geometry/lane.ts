@@ -267,32 +267,48 @@ export type WallContact = {
   normalSpeed: number
   // Speed it bounces back off the wall with, in/s.
   reboundSpeed: number
+  // Fraction of the ball's speed the hit costs it, once it's rolling again.
+  speedLoss: number
+  // How far the hit knocks the ball across the lane before it next touches
+  // a wall, or leaves the lane, as a fraction of the room it has there: 1
+  // is all the way to the other wall.
+  lift: number
   // How far the wall flexes under the hit, inches.
   flex: number
 }
 
-// How the ball gets through the lane, best to worst, judged by its hardest
-// bounce off a wall and by whether it bounces across the lane:
-// - smooth: only glancing contact
-// - chatter: light hits, or a hit that flexes the wall more than MAX_FLEX
+// How the ball gets through the lane, best to worst, judged by how much
+// speed its hardest bounce costs it, how far its bounces knock it across
+// the lane, and whether it bounces all the way across:
+// - smooth: the ball stays on or near the walls it touches
+// - chatter: light hits that knock it well off a wall, or a hit that flexes
+//   the wall more than MAX_FLEX
 // - ricochet: a hard hit, or one trip across to the other wall
 // - rattle: a very hard hit, or bouncing back and forth across the lane
 // - stalls: never makes it out of the exit
 // - misses: flies across an open span and misses the walls on the far side
+//
+// How far a hit knocks the ball across, more than its angle, is what
+// matters: the outside wall of a bend soon catches a ball bouncing off it,
+// so a ball shot into a bend thumps into it and rides it around, as on an
+// orbit or a ramp. Off a straight wall, it carries on across.
 export type LaneOutcome = 'smooth' | 'chatter' | 'ricochet' | 'rattle' | 'stalls' | 'misses'
 
-// Speed the ball bounces back off a wall (in/s) at which a hit reaches each
-// outcome. Hitting a rigid wall that returns 60% of the speed, at 150 in/s
-// these are hits at roughly 6°, 14° and 24° to the wall.
-export const HIT_SEVERITY = { chatter: 9, ricochet: 21, rattle: 36 }
+// Fraction of its speed a hit costs the ball at which it's hard, and very
+// hard. Into a wall that returns 70% of the speed into it, these are hits
+// at roughly 26° and 43°.
+export const HIT_SEVERITY = { ricochet: 0.1, rattle: 0.2 }
+// Furthest across the lane a bounce can knock the ball, as a fraction of
+// the room it has, for it to still be riding the wall.
+export const HIT_LIFT = 0.25
 
 /**
- * Whether a contact counts as a hit rather than a glancing touch: it bounces
- * back hard enough, or knocks the wall further than it should flex. A soft
- * wall soaks up a hit, but that's no good if it bends out of line doing so.
+ * Whether a contact counts as a hit rather than a glancing touch: it knocks
+ * the ball off the wall, or knocks the wall further than it should flex. A
+ * soft wall soaks up a hit, but that's no good if it bends out of line
+ * doing so.
  */
-export const isHit = (contact: WallContact) =>
-  contact.reboundSpeed >= HIT_SEVERITY.chatter || contact.flex > MAX_FLEX
+export const isHit = (contact: WallContact) => contact.lift > HIT_LIFT || contact.flex > MAX_FLEX
 
 export type LaneRun = {
   // Ball center from the entrance to where it leaves the lane, and its
@@ -313,6 +329,29 @@ const STEP_LENGTH = 0.03
 const MAX_STEPS = 20000
 // Below this speed into a wall (in/s), the ball stays on it and rolls along it.
 const RIDE_SPEED = 2
+// Furthest a bounce lifts the ball off a wall it's pressed against, inches,
+// for it to count as still rolling along it: less than the wall flexes.
+const RIDE_GAP = 0.01
+// Coefficient of sliding friction between the ball and the playfield.
+const PLAYFIELD_FRICTION = 0.15
+// A solid ball's moment of inertia is 2/5·m·r², so friction at the
+// playfield changes the spin's speed 5/2 times as fast as the ball's, and
+// once it's rolling again the ball keeps 5/7 of its own velocity and takes
+// on 2/7 of its spin's.
+const SPIN_RESPONSE = 5 / 2
+const ROLLING = 5 / 7
+// Coefficient of friction between the ball and a steel wall.
+const WALL_FRICTION = 0.3
+
+/** Velocity a ball moving at `v` and spinning to roll at `spin` has once friction has it rolling, as [x, y]. */
+const settle = (v: Point, spin: Point): [number, number] => [
+  ROLLING * v.x + (1 - ROLLING) * spin.x,
+  ROLLING * v.y + (1 - ROLLING) * spin.y,
+]
+
+// Accelerations from gravity on the tilted playfield, in/s²: down its
+// slope, toward +y, and into its surface.
+export type Incline = { slope: number; normal: number }
 
 // How a wall responds where it's hit, at a wall side (1 or -1) and sample
 // index: the fraction of the speed into it the ball bounces back with, and
@@ -321,10 +360,17 @@ export type WallResponse = (side: number, index: number) => { restitution: numbe
 
 /**
  * Follow the ball through the lane from `position` with `velocity`, rolling
- * freely with `gravity` pulling toward +y and bouncing off the walls, which
- * stand `w` apart at each sample of the center line and respond to each hit
- * as `wall` gives. Spin and wall friction are ignored. Returns null if the
- * lane is too narrow for the ball.
+ * down the `incline` and bouncing off the walls, which stand `w` apart at
+ * each sample of the center line and respond to each hit as `wall` gives.
+ * Returns null if the lane is too narrow for the ball.
+ *
+ * The ball comes in rolling, spinning toward the wall as it heads into it.
+ * A wall hits it at its equator, so a bounce turns the ball back, but the
+ * spin is only checked by the wall's friction against the ball's surface
+ * sweeping down it. Until friction with the playfield has it rolling again,
+ * the spin it keeps steers it back toward the wall. Rolling along a wall,
+ * it rolls on the wall as well as the playfield, which keeps its spin in
+ * step with it around a bend. Friction along the wall is ignored.
  *
  * Where `open` marks a sample, the lane has no walls beside it: the ball
  * runs free there, and must be between the walls where they start again.
@@ -341,7 +387,7 @@ export function runLane(
   ballRadius: number,
   position: Point,
   velocity: Point,
-  gravity: number,
+  incline: Incline,
   wall: WallResponse,
   open: boolean[] = [],
 ): LaneRun | null {
@@ -385,6 +431,10 @@ export function runLane(
 
   let p = position
   let v = velocity
+  // The velocity the ball's spin would have it rolling at. It differs from
+  // `v` while the ball slides.
+  let spin = velocity
+  const grip = PLAYFIELD_FRICTION * incline.normal
   const path = [p]
   const speeds = [Math.hypot(v.x, v.y)]
   const record = () => {
@@ -393,12 +443,14 @@ export function runLane(
   }
   const bounces: WallContact[] = []
   let firstTouch: WallContact | null = null
+  // The last bounce, while the ball is still off the wall it bounced off.
+  let lifting: WallContact | null = null
 
   const finish = (exitSpeed: number | null, missed = false): LaneRun => {
     // Bounces that switch walls are trips across the lane.
     let crossings = 0
     for (let i = 1; i < bounces.length; i++) if (bounces[i].side !== bounces[i - 1].side) crossings++
-    const hardest = Math.max(0, ...bounces.map((b) => b.reboundSpeed))
+    const hardest = Math.max(0, ...bounces.map((b) => b.speedLoss))
     const outcome: LaneOutcome = missed
       ? 'misses'
       : exitSpeed === null
@@ -420,8 +472,23 @@ export function runLane(
     const speed = Math.hypot(v.x, v.y)
     if (speed < 1e-3) return finish(null)
     const dt = STEP_LENGTH / speed
-    p = { x: p.x + v.x * dt, y: p.y + v.y * dt + 0.5 * gravity * dt * dt }
-    v = { x: v.x, y: v.y + gravity * dt }
+    const slip = sub(v, spin)
+    const slipSpeed = Math.hypot(slip.x, slip.y)
+    // Sliding: friction drags the ball one way and its spin the other,
+    // closing the slip 7/2 times as fast as it slows the ball. Once it would
+    // close within the step, the ball is rolling.
+    if (slipSpeed > (1 + SPIN_RESPONSE) * grip * dt) {
+      const drag = scale(slip, -grip / slipSpeed)
+      const a = add(drag, { x: 0, y: incline.slope })
+      p = add(p, add(scale(v, dt), scale(a, 0.5 * dt * dt)))
+      v = add(v, scale(a, dt))
+      spin = add(spin, scale(drag, -SPIN_RESPONSE * dt))
+    } else {
+      if (slipSpeed > 0) v = spin = add(scale(v, ROLLING), scale(spin, 1 - ROLLING))
+      const a = ROLLING * incline.slope
+      p = { x: p.x + v.x * dt, y: p.y + v.y * dt + 0.5 * a * dt * dt }
+      v = spin = { x: v.x, y: v.y + a * dt }
+    }
 
     const here = locate(p)
     // Past the end of the center line: out through the exit, or back out
@@ -462,8 +529,28 @@ export function runLane(
         const angle = Math.abs(Math.atan2(cross(here.tangent, v), dot(here.tangent, v)))
         const index = here.f < 0.5 ? here.i : here.i + 1
         const response = wall(side, index)
-        // Too gentle to bounce: the ball rolls along the wall.
-        const rebound = into < RIDE_SPEED ? 0 : response.restitution * into
+        const before = Math.hypot(...settle(v, spin))
+        let rebound = response.restitution * into
+        // Too gentle to bounce: the ball rolls along the wall. On the outside
+        // of a bend, going around it presses the ball to the wall, which it
+        // only bounces off if it would lift further than RIDE_GAP.
+        const a = curve[here.i]
+        const b = curve[here.i + 1]
+        const curvature = cross(a.t, b.t) / (b.s - a.s)
+        const outside = curvature * side < 0
+        const pressed = outside ? dot(v, here.tangent) ** 2 / (1 / Math.abs(curvature) + reach) : 0
+        if (into < RIDE_SPEED || rebound * rebound < 2 * pressed * RIDE_GAP) rebound = 0
+        v = add(v, scale(inward, into + rebound))
+        if (rebound === 0) spin = v
+        else {
+          // The ball's surface sweeps up or down the wall as fast as its spin
+          // carries it into or away from it. Friction there, up to its share
+          // of the hit, stops that, taking 5/7 of the spin's speed across the
+          // wall and popping the ball up or down with the rest.
+          const across = -dot(spin, inward)
+          const grab = Math.min((1 - ROLLING) * Math.abs(across), WALL_FRICTION * (into + rebound))
+          spin = add(spin, scale(inward, Math.sign(across) * SPIN_RESPONSE * grab))
+        }
         const contact: WallContact = {
           wall: add(here.center, scale(here.n, side * here.halfWidth)),
           ball: p,
@@ -473,12 +560,18 @@ export function runLane(
           impactAngle: (Math.min(angle, Math.PI - angle) * 180) / Math.PI,
           normalSpeed: into,
           reboundSpeed: rebound,
+          speedLoss: before > 0 ? Math.max(0, 1 - Math.hypot(...settle(v, spin)) / before) : 0,
+          lift: 0,
           flex: into * response.flexPerSpeed,
         }
         firstTouch ??= contact
-        v = add(v, scale(inward, into + rebound))
-        if (into >= RIDE_SPEED) bounces.push(contact)
+        if (rebound > 0) bounces.push(contact)
+        lifting = rebound > 0 ? contact : null
       }
+    }
+    if (lifting) {
+      const across = (reach - lifting.side * dot(sub(p, here.center), here.n)) / (2 * reach)
+      lifting.lift = Math.min(1, Math.max(lifting.lift, across))
     }
     record()
   }

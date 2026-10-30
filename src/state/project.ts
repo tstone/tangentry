@@ -8,6 +8,7 @@ import { clearPlayfieldImage } from './playfieldImage'
 import {
   DEFAULT_HORSESHOE,
   DEFAULT_ORIGIN,
+  canFeedFlipper,
   canLeaveBy,
   replaceShots,
   shots,
@@ -25,6 +26,7 @@ import { replaceReserved, reserved, type ReservedArea } from './reserved'
 import {
   DEFAULT_COIL,
   DEFAULT_ENTRANCE_SPEED,
+  FEED_OFFSET_MAX,
   extraFlipperKey,
   extraFlippers,
   replaceExtraFlippers,
@@ -162,6 +164,11 @@ function readExtraFlipper(input: unknown, path: string): ExtraFlipper {
     coil: f.coil === undefined ? DEFAULT_COIL : oneOf(f.coil, ids(COILS), `${path}.coil`),
     // Missing from files saved before flippers could be fed from a lane.
     feed: readFeed(f.feed, `${path}.feed`),
+    // Missing from files saved before fed flippers could be moved off the ball's line.
+    feedOffset:
+      f.feedOffset === undefined
+        ? 0
+        : Math.max(-FEED_OFFSET_MAX, Math.min(FEED_OFFSET_MAX, number(f.feedOffset, `${path}.feedOffset`))),
   }
 }
 
@@ -435,6 +442,11 @@ export function importProject(json: string) {
     const from = feed && merged.find((s) => s.id === feed.id)
     return feed && from && canLeaveBy(from, feed.end) ? feed : null
   }
+  // A single-ended lane's entrance can feed a flipper, though not another lane.
+  const checkFlipperFeed = (feed: Feed | null) => {
+    const from = feed && merged.find((s) => s.id === feed.id)
+    return feed && from && canFeedFlipper(from, feed.end) ? feed : null
+  }
   const checkFlipper = (flipper: TargetFlipper) =>
     flipper.startsWith('extra') && !flipperKeys.has(flipper) ? ('auto' as const) : flipper
   const shotList = merged.map((s) => ({
@@ -450,7 +462,7 @@ export function importProject(json: string) {
     setInlanes(next.inlanes)
     setBall(next.ball)
     setWalls(next.walls)
-    replaceExtraFlippers(next.extraFlippers.map((f) => ({ ...f, feed: checkFeed(f.feed) })))
+    replaceExtraFlippers(next.extraFlippers.map((f) => ({ ...f, feed: checkFlipperFeed(f.feed) })))
     replaceShots(shotList)
     replaceReserved(next.reserved)
   })

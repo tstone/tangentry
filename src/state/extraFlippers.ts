@@ -2,7 +2,7 @@ import { batch } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { playfield } from './playfield'
 import { focusOn, focusedId, unfocus } from './focus'
-import { canLeaveBy, originOf, setOrigin, shots, type Entrance, type Feed, type FlipperKey, type ShotEnd } from './shots'
+import { canFeedFlipper, originOf, setOrigin, shots, type Entrance, type Feed, type FlipperKey, type ShotEnd } from './shots'
 import type { CoilId, FlipperProfileId } from '../physics/drive'
 
 // Flippers besides the main pair, each placed anywhere on the playfield.
@@ -28,7 +28,13 @@ export type ExtraFlipper = {
   // the way the ball leaves and takes the speed it leaves at, in place of
   // its own side, rest angle and entrance speed.
   feed: Feed | null
+  // How far a fed flipper sits off the line the ball comes out of the lane
+  // along, to the right of the way it heads, inches, within FEED_OFFSET_MAX.
+  feedOffset: number
 }
+
+// Furthest a fed flipper can be moved off the ball's line, either way, inches.
+export const FEED_OFFSET_MAX = 0.25
 
 // About what the main inlanes deliver to the main flippers' bases.
 export const DEFAULT_ENTRANCE_SPEED = 20
@@ -37,8 +43,8 @@ export const DEFAULT_ENTRANCE_SPEED = 20
 export const DEFAULT_COIL: CoilId = 'FL-11630'
 
 // Dragged and new pivots snap to this increment, like other handles.
-const SNAP = 1 / 16
-const snap = (value: number) => Math.round(value / SNAP) * SNAP
+export const PIVOT_SNAP = 1 / 16
+const snap = (value: number) => Math.round(value / PIVOT_SNAP) * PIVOT_SNAP
 
 const [extraFlippers, setExtraFlippers] = createStore<ExtraFlipper[]>([])
 
@@ -64,6 +70,7 @@ export function addExtraFlipper() {
     entranceSpeed: DEFAULT_ENTRANCE_SPEED,
     coil: DEFAULT_COIL,
     feed: null,
+    feedOffset: 0,
   })
   setSelectedFlipperId(id)
 }
@@ -72,7 +79,7 @@ export function addExtraFlipper() {
 export function flipperFeed(f: ExtraFlipper): Feed | null {
   const feed = f.feed
   const from = feed && shots.find((s) => s.id === feed.id)
-  return feed && from && canLeaveBy(from, feed.end) ? feed : null
+  return feed && from && canFeedFlipper(from, feed.end) ? feed : null
 }
 
 /** Shots made off a flipper that's gone go back to the automatic choice. */

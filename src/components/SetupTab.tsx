@@ -24,6 +24,7 @@ import {
 import {
   addExtraFlipper,
   extraFlippers,
+  FEED_OFFSET_MAX,
   flipperFeed,
   removeExtraFlipper,
   selectedFlipperId,
@@ -31,8 +32,8 @@ import {
   updateExtraFlipper,
   type ExtraFlipper,
 } from '../state/extraFlippers'
-import { canLeaveBy, endName, shots, type Feed, type ShotEnd } from '../state/shots'
-import { fedFlipperSettings } from '../state/solutions'
+import { canFeedFlipper, endName, rollsBackFrom, shots, type Feed, type ShotEnd } from '../state/shots'
+import { fedFlipperSettings, fedPivotAt, feedDistance, resolvedExtraFlipper } from '../state/solutions'
 import { formatDegrees } from './Dimensions'
 import { hoveredFlipper, setCalledOutFeed } from '../state/view'
 import { flipperHoverHandlers } from './ExtraFlippers'
@@ -190,13 +191,22 @@ function FlipperFeedField(props: { flipper: ExtraFlipper }) {
   const fed = () => (feed() ? fedFlipperSettings(f()) : null)
   const options = (): { label: string; value: FeedChoice }[] => [
     { label: 'Rolls in at its entrance speed', value: 'none' },
-    // Any lane's exit, and either end of a double-ended lane.
+    // Any lane's exit, and either end of a double-ended lane, or a
+    // single-ended lane's entrance, the ball rolling back out of it.
     ...shots.flatMap((s) =>
       (['exit', 'entrance'] as const)
-        .filter((end) => canLeaveBy(s, end))
-        .map((end) => ({ label: endName(s, end), value: `${s.id}-${end}` as FeedChoice })),
+        .filter((end) => canFeedFlipper(s, end))
+        .map((end) => ({
+          label: rollsBackFrom(s, end) ? `${endName(s, end)}, rolling back from its end` : endName(s, end),
+          value: `${s.id}-${end}` as FeedChoice,
+        })),
     ),
   ]
+  const rollsBack = () => {
+    const from = feed()
+    const shot = from && shots.find((s) => s.id === from.id)
+    return !!from && !!shot && rollsBackFrom(shot, from.end)
+  }
   const value = (): FeedChoice => {
     const from = feed()
     return from ? `${from.id}-${from.end}` : 'none'
@@ -218,8 +228,10 @@ function FlipperFeedField(props: { flipper: ExtraFlipper }) {
           if (choice === 'none') {
             // Keep the flipper where the lane had it, rather than jumping back.
             const settings = fed()
+            const { x, y } = resolvedExtraFlipper(f()).pivot
             updateExtraFlipper(f().id, {
               feed: null,
+              pivot: { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 },
               ...(settings && {
                 side: settings.side,
                 restAngle: Math.round(settings.restAngle * 10) / 10,
@@ -236,9 +248,13 @@ function FlipperFeedField(props: { flipper: ExtraFlipper }) {
           <p class="field-note">
             Points the way the ball leaves {source()}: mounted {settings().side}, at{' '}
             {formatDegrees(settings().restAngle)} below horizontal.{' '}
-            {settings().entranceSpeed === null
-              ? 'No ball path makes it out of there, so the ball arrives at the entrance speed below.'
-              : `The ball arrives at the ${Math.round(settings().entranceSpeed!)} in/s it leaves at, along the shot that end's lane is lined up with.`}
+            {rollsBack()
+              ? settings().entranceSpeed === null
+                ? "The ball doesn't make it back out rolling from rest at the lane's far end, so it lines up with the entrance and arrives at the entrance speed below."
+                : `The ball rolls back down the lane from rest at its far end, as off a target, captive ball or magnet there, arriving at ${Math.round(settings().entranceSpeed!)} in/s.`
+              : settings().entranceSpeed === null
+                ? 'No ball path makes it out of there, so the ball arrives at the entrance speed below.'
+                : `The ball arrives at the ${Math.round(settings().entranceSpeed!)} in/s it leaves at, along the shot that end's lane is lined up with.`}
           </p>
         )}
       </Show>
@@ -311,26 +327,62 @@ function ExtraFlipperCard(props: { flipper: ExtraFlipper }) {
           onChange={(entranceSpeed) => update({ entranceSpeed })}
         />
       </Show>
-      <div class="field-pair">
-        <NumberField
-          label="Pivot X"
-          unit="in"
-          min={0}
-          max={playfield.width}
-          step={0.125}
-          value={f().pivot.x}
-          onChange={(x) => update({ pivot: { ...f().pivot, x } })}
-        />
-        <NumberField
-          label="Pivot Y"
-          unit="in"
-          min={0}
-          max={playfield.height}
-          step={0.125}
-          value={f().pivot.y}
-          onChange={(y) => update({ pivot: { ...f().pivot, y } })}
-        />
-      </div>
+      {/* A fed flipper stays lined up with the lane feeding it, and only slides along it. */}
+      <Show
+        when={feedDistance(f()) !== null}
+        fallback={
+          <div class="field-pair">
+            <NumberField
+              label="Pivot X"
+              unit="in"
+              min={0}
+              max={playfield.width}
+              step={0.125}
+              value={f().pivot.x}
+              onChange={(x) => update({ pivot: { ...f().pivot, x } })}
+            />
+            <NumberField
+              label="Pivot Y"
+              unit="in"
+              min={0}
+              max={playfield.height}
+              step={0.125}
+              value={f().pivot.y}
+              onChange={(y) => update({ pivot: { ...f().pivot, y } })}
+            />
+          </div>
+        }
+      >
+        <div class="field-pair">
+          <NumberField
+            label="Past lane end"
+            unit="in"
+            min={-12}
+            max={48}
+            step={0.125}
+            value={Math.round(feedDistance(f())! * 1000) / 1000}
+            onChange={(distance) => {
+              const pivot = fedPivotAt(f(), distance)
+              if (pivot) update({ pivot })
+            }}
+          />
+          <NumberField
+            label="Offset"
+            unit="in"
+            min={-FEED_OFFSET_MAX}
+            max={FEED_OFFSET_MAX}
+            step={1 / 64}
+            value={f().feedOffset}
+            onChange={(offset) =>
+              update({ feedOffset: Math.max(-FEED_OFFSET_MAX, Math.min(FEED_OFFSET_MAX, offset)) })
+            }
+          />
+        </div>
+        <p class="field-note">
+          Offset moves the flipper off the ball's line, to the right of the way the ball comes in, by up to{' '}
+          {FEED_OFFSET_MAX}".
+        </p>
+      </Show>
     </div>
   )
 }

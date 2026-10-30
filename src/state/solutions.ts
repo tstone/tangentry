@@ -13,6 +13,7 @@ import {
   feedChain,
   originOf,
   otherEnd,
+  rollsBackFrom,
   selectedId,
   shotEnds,
   shots,
@@ -36,7 +37,7 @@ import {
   type WallSpec,
 } from '../physics/wall'
 import { INLANE_LENGTH, computeLayout, extraFlipperLayout, toRadians, type Side } from './layout'
-import { GRAVITY, rollingGravity, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
+import { GRAVITY, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
 import type { Point } from '../geometry/flipper'
 import { polygonsOverlap } from '../geometry/overlap'
 import {
@@ -776,7 +777,8 @@ function runEnd(shot: Shot, lane: Lane | null, end: ShotEnd, inflow: Inflow): En
   if (!lane || feeding.length < inflow.feeders.length) return { end, flippers: inflow.solved, parts: [] }
   const { center, widths, open, parts, response } = track(shot.id, lane, feeding, end === 'exit')
   const ballRadius = ball.diameter / 2
-  const gravity = rollingGravity(GRAVITY * Math.sin(toRadians(playfield.angle)))
+  const tilt = toRadians(playfield.angle)
+  const incline = { slope: GRAVITY * Math.sin(tilt), normal: GRAVITY * Math.cos(tilt) }
 
   const flippers = inflow.solved.map((f) => ({
     ...f,
@@ -785,7 +787,7 @@ function runEnd(shot: Shot, lane: Lane | null, end: ShotEnd, inflow: Inflow): En
         state,
         s && {
           ...s,
-          lane: runLane(center, widths, ballRadius, s.arrival, s.arrivalVelocity, gravity, response, open),
+          lane: runLane(center, widths, ballRadius, s.arrival, s.arrivalVelocity, incline, response, open),
         },
       ]),
     ) as FlipperSolutions['states'],
@@ -909,13 +911,45 @@ export function targetSolution(shot: Shot, end: ShotEnd, solved: FlipperSolution
 
 // What a fed extra flipper takes from the lane end feeding it, where that
 // overrides its own settings. Its entrance speed is null if no ball path
-// makes it out of that end.
-type FedSettings = { side: Side; restAngle: number; entranceSpeed: number | null }
+// makes it out of that end. The ball comes out along `line`, from where it
+// leaves the lane the way it heads, in playfield coordinates.
+type FedSettings = {
+  side: Side
+  restAngle: number
+  entranceSpeed: number | null
+  line: { from: Entrance; direction: Point }
+  // A ball rolling back out of a single-ended lane's entrance leaves it at
+  // `entranceSpeed` and keeps picking up speed on its way down to the
+  // flipper, along `path` through the lane (SVG coordinates).
+  rollBack: { path: Point[] } | null
+}
+
+// How fast the ball is nudged toward the entrance to start it rolling back
+// from rest, in/s: the lane runner needs it moving.
+const ROLL_BACK_NUDGE = 0.5
+
+/**
+ * The ball rolling back down a single-ended lane from rest at its exit, as
+ * held there by a target, captive ball or magnet, or dropped in by a
+ * wireform, and out its entrance, wherever the lane's walls carry it.
+ */
+function runBack(shot: Shot, lane: Lane): LaneRun | null {
+  const { center, widths, open, response } = track(shot.id, lane, [], true)
+  if (center.length < 2) return null
+  const tilt = toRadians(playfield.angle)
+  const incline = { slope: GRAVITY * Math.sin(tilt), normal: GRAVITY * Math.cos(tilt) }
+  // The track runs exit to entrance, so its first tangent heads for the entrance.
+  const { p, t } = center[0]
+  const nudge = { x: t.x * ROLL_BACK_NUDGE, y: t.y * ROLL_BACK_NUDGE }
+  return runLane(center, widths, ball.diameter / 2, p, nudge, incline, response, open)
+}
 
 /**
  * How the ball leaves a lane by one end onto an extra flipper: the way the
- * lane points there, and the speed the target ball path into its other end
- * leaves at, run off the base flippers.
+ * lane points there, and where and how fast the target ball path into its
+ * other end leaves, run off the base flippers. Rolling back out of a
+ * single-ended lane's entrance, it leaves where and the way the run back
+ * down the lane comes out instead.
  */
 function fedSettings(feed: Feed): FedSettings | null {
   const shot = shots.find((s) => s.id === feed.id)
@@ -925,30 +959,68 @@ function fedSettings(feed: Feed): FedSettings | null {
     ?.lane.base()
   // Out of the lane straight on from its end, back up it for a double-ended
   // lane left by its entrance.
-  let angle = leavingExit(shot, feed.end).angle
-  if (lane) {
-    const t = feed.end === 'exit' ? laneExit(lane).sample.t : { x: -lane.center[0].t.x, y: -lane.center[0].t.y }
+  const leaving = leavingExit(shot, feed.end)
+  let angle = leaving.angle
+  let from: Entrance = { x: leaving.x, y: leaving.y }
+  // Where and which way the ball leaves, in SVG coordinates.
+  const leaveAt = (p: Point, t: Point) => {
     // SVG y points down; angles are counter-clockwise on screen.
     angle = (Math.atan2(-t.y, t.x) * 180) / Math.PI
+    from = { x: p.x, y: playfield.height - p.y }
   }
+  if (lane) {
+    const at = feed.end === 'exit' ? laneExit(lane).sample : lane.center[0]
+    leaveAt(at.p, feed.end === 'exit' ? at.t : { x: -at.t.x, y: -at.t.y })
+  }
+
+  let entranceSpeed: number | null = null
+  let rollBack: FedSettings['rollBack'] = null
+  if (rollsBackFrom(shot, feed.end)) {
+    const run = lane && runBack(shot, lane)
+    const [a, b] = run?.path.slice(-2) ?? []
+    if (run && run.exitSpeed !== null && a && b && Math.hypot(b.x - a.x, b.y - a.y) > 1e-9) {
+      leaveAt(b, unit({ x: b.x - a.x, y: b.y - a.y }))
+      entranceSpeed = run.exitSpeed
+      rollBack = { path: run.path }
+    }
+  }
+
+  const direction = { x: Math.cos(toRadians(angle)), y: Math.sin(toRadians(angle)) }
   // The ball rolls down the flipper's axis, from base to tip: a left
   // flipper points right, so a ball heading right lands on one.
   const side: Side = Math.cos(toRadians(angle)) >= 0 ? 'left' : 'right'
   const below = side === 'left' ? -angle : angle + 180
   const restAngle = ((((below + 180) % 360) + 360) % 360) - 180
 
+  if (rollsBackFrom(shot, feed.end)) return { side, restAngle, entranceSpeed, line: { from, direction }, rollBack }
+
   const into = otherEnd(feed.end)
   const inflow = inflowOf(shot, into, 'base')
   const target = targetSolution(shot, into, inflow.solved)
-  let entranceSpeed: number | null = null
   if (lane && target) {
     const [key, state] = target.alignedTo.split('-') as [FlipperKey, BallState]
     const flipper = inflow.solved.find((f) => f.key === key)!
     // Only the target ball path is run through.
     const run = runEnd(shot, lane, into, { ...inflow, solved: [{ ...flipper, states: { [state]: target.solution } }] })
-    entranceSpeed = run.flippers[0]?.states[state]?.lane?.exitSpeed ?? null
+    const out = run.flippers[0]?.states[state]?.lane
+    entranceSpeed = out?.exitSpeed ?? null
+    // The ball needn't leave down the middle of the lane: line the flipper
+    // up with where its center actually comes out.
+    const last = entranceSpeed !== null ? out?.path.at(-1) : undefined
+    if (last) from = { x: last.x, y: playfield.height - last.y }
   }
-  return { side, restAngle, entranceSpeed }
+  return { side, restAngle, entranceSpeed, line: { from, direction }, rollBack: null }
+}
+
+/**
+ * The speed a ball rolled back out of a lane at `speed` reaches a flipper's
+ * base at, crossing it `distance` on from the lane's end. Rolling freely
+ * across the playfield, only how far it drops counts.
+ */
+function rollOnSpeed(fed: FedSettings, speed: number, distance: number) {
+  const drop = -fed.line.direction.y * distance
+  const slope = GRAVITY * Math.sin(toRadians(playfield.angle))
+  return rollingSpeed(speed, slope, Math.PI / 2, drop)
 }
 
 // Each fed extra flipper's settings from the lane end feeding it, worked
@@ -970,22 +1042,86 @@ const fedFlippers = createRoot(() => {
   return createMemo(list)
 })
 
-/** What an extra flipper takes from the lane end feeding it, if it's fed. */
-export const fedFlipperSettings = (f: ExtraFlipper): FedSettings | null =>
-  fedFlippers()
+/**
+ * What an extra flipper takes from the lane end feeding it, if it's fed. A
+ * ball rolling back out of a lane reaches it at the speed it picks up on the
+ * way down to where the flipper is now.
+ */
+export const fedFlipperSettings = (f: ExtraFlipper): FedSettings | null => {
+  const fed = fedFlippers()
     .find((s) => s.id === f.id)
-    ?.settings() ?? null
+    ?.settings()
+  if (!fed) return null
+  if (!fed.rollBack || fed.entranceSpeed === null) return fed
+  return { ...fed, entranceSpeed: rollOnSpeed(fed, fed.entranceSpeed, distanceAlong(fed, f.pivot)) }
+}
+
+/**
+ * Where a fed flipper's pivot goes for the ball to come out of the lane
+ * onto it `distance` inches on from the lane's end: back from the ball's
+ * line so the ball rolls along the top of its base, the face it swings up,
+ * and its own offset to the right of the way the ball heads.
+ */
+function pivotAlong(f: ExtraFlipper, fed: FedSettings, distance: number): Entrance {
+  const { from, direction: d } = fed.line
+  // A left flipper swings counter-clockwise, a right one clockwise.
+  const up = fed.side === 'left' ? { x: -d.y, y: d.x } : { x: d.y, y: -d.x }
+  const back = flipperShape(flipperProfile(f.profile)).baseRadius + ball.diameter / 2
+  const right = { x: d.y, y: -d.x }
+  const offset = f.feedOffset ?? 0
+  return {
+    x: from.x + d.x * distance - up.x * back + right.x * offset,
+    y: from.y + d.y * distance - up.y * back + right.y * offset,
+  }
+}
+
+/** How far on from the end of the lane feeding it a pivot at `pivot` puts a fed flipper. */
+function distanceAlong(fed: FedSettings, pivot: Entrance) {
+  const { from, direction: d } = fed.line
+  return (pivot.x - from.x) * d.x + (pivot.y - from.y) * d.y
+}
+
+/** The settings a fed extra flipper takes from its lane end, or null if it isn't fed. */
+const fedOrNull = (f: ExtraFlipper) => (flipperFeed(f) ? fedFlipperSettings(f) : null)
+
+/** How far on from the end of the lane feeding it an extra flipper's pivot is, if it's fed. */
+export function feedDistance(f: ExtraFlipper): number | null {
+  const fed = fedOrNull(f)
+  return fed ? distanceAlong(fed, f.pivot) : null
+}
+
+/**
+ * Where a fed flipper's pivot goes when dragged toward `to`: the nearest
+ * place still lined up with the lane feeding it, `snap` inches apart along
+ * it. Null if the flipper isn't fed, and moves freely.
+ */
+export function fedPivotToward(f: ExtraFlipper, to: Entrance, snap: number): Entrance | null {
+  const fed = fedOrNull(f)
+  return fed ? pivotAlong(f, fed, Math.round(distanceAlong(fed, to) / snap) * snap) : null
+}
+
+/** A fed flipper's pivot `distance` inches on from the end of the lane feeding it. */
+export function fedPivotAt(f: ExtraFlipper, distance: number): Entrance | null {
+  const fed = fedOrNull(f)
+  return fed ? pivotAlong(f, fed, distance) : null
+}
 
 /**
  * An extra flipper as it's set up on the playfield: its own settings, or
- * those it takes from the lane end feeding it. Without a ball path out of
- * that end, it keeps its own entrance speed.
+ * those it takes from the lane end feeding it, its pivot slid onto the way
+ * the ball comes out. Without a ball path out of that end, it keeps its own
+ * entrance speed.
  */
 export function resolvedExtraFlipper(f: ExtraFlipper): ExtraFlipper {
-  if (!flipperFeed(f)) return f
-  const fed = fedFlipperSettings(f)
+  const fed = fedOrNull(f)
   if (!fed) return f
-  return { ...f, side: fed.side, restAngle: fed.restAngle, entranceSpeed: fed.entranceSpeed ?? f.entranceSpeed }
+  return {
+    ...f,
+    side: fed.side,
+    restAngle: fed.restAngle,
+    entranceSpeed: fed.entranceSpeed ?? f.entranceSpeed,
+    pivot: pivotAlong(f, fed, distanceAlong(fed, f.pivot)),
+  }
 }
 
 // Shared by the sidebar and the preview.

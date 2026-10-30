@@ -72,7 +72,9 @@ function SolutionDetails(props: { solution: Solution }) {
                 {(b) => (
                   <dd>
                     {formatInches(b().distance)} in at {formatDegrees(b().impactAngle)}, {Math.round(b().normalSpeed)}{' '}
-                    in/s into wall, {Math.round(b().reboundSpeed)} in/s back off
+                    in/s into wall, {Math.round(b().reboundSpeed)} in/s back off, knocking it{' '}
+                    {Math.round(100 * b().lift)}% of the way across and costing {Math.round(100 * b().speedLoss)}% of
+                    its speed
                   </dd>
                 )}
               </Show>

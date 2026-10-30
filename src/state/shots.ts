@@ -195,6 +195,17 @@ export const endName = (shot: Shot, end: ShotEnd) => `${shot.name}'s ${end}${sho
 export const canLeaveBy = (shot: Shot, end: ShotEnd) =>
   end === 'exit' ? shot.end !== 'horseshoe' : shot.end === 'double'
 
+/**
+ * Whether the ball can leave a shot's lane by `end` onto an extra flipper:
+ * any end it can leave by into another lane, and a single-ended lane's
+ * entrance too, the ball rolling back out from rest at its far end, as off
+ * a target, captive ball or magnet there, or a wireform dropping it in.
+ */
+export const canFeedFlipper = (shot: Shot, end: ShotEnd) => end === 'entrance' || canLeaveBy(shot, end)
+
+/** Whether a flipper fed by `end` of a shot gets a ball rolling back out from rest at the lane's far end. */
+export const rollsBackFrom = (shot: Shot, end: ShotEnd) => end === 'entrance' && shot.end !== 'double'
+
 // Spade bolts near each end and a spike between, given ids by `id`.
 const defaultMounts = (id: () => number): WallMount[] => [
   { id: id(), kind: 'spade', at: 0.05 },

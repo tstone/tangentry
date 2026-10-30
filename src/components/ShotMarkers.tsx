@@ -128,6 +128,24 @@ export default function ShotMarkers() {
               setExit(shot.id, { angle: Math.round((Math.atan2(dy, dx) * 180) / Math.PI) })
               updateShot(shot.id, { exitWeight: roundWeight(Math.hypot(dx, dy) / DIRECTION_LENGTH) })
             })
+          // Where a single-ended lane ends, heading out.
+          const exitMouth = () => {
+            const l = lane()
+            return l?.center.length ? laneExit(l).sample : null
+          }
+          // The width handle sits on the left wall, as the ball leaves.
+          const exitWall = (m: { p: Point; t: Point }, side: number) => ({
+            x: m.p.x + side * (shot.exitWidth / 2) * normal(m.t).x,
+            y: m.p.y + side * (shot.exitWidth / 2) * normal(m.t).y,
+          })
+          const dragExitWidth = (event: PointerEvent) =>
+            grab(shot, 'exit', event, (p) => {
+              const m = exitMouth()
+              if (!m) return
+              updateShot(shot.id, {
+                exitWidth: clamp(snap(-2 * dot(svgFrom(p, m.p), normal(m.t))), MIN_WIDTH, MAX_WIDTH),
+              })
+            })
           return (
             <g class="shot-markers" classList={{ 'is-selected': selectedId() === shot.id }}>
               {/* Across open playfield from the lane end feeding each end of this one. */}
@@ -177,7 +195,7 @@ export default function ShotMarkers() {
                       {shot.name} exit
                       {shot.end === 'double'
                         ? ', also an entrance: grab to bring up its weight, offset and lead-in'
-                        : ': grab to bring up its direction and weight'}
+                        : ': grab to bring up its direction, weight and width'}
                     </title>
                   </circle>
                 }
@@ -204,6 +222,28 @@ export default function ShotMarkers() {
                 >
                   <title>{shot.name} exit direction and weight</title>
                 </circle>
+              </Show>
+              <Show when={shot.end !== 'double' && isFocused(shot, 'exit') && exitMouth()}>
+                {(m) => (
+                  <>
+                    {/* Across the mouth, wall to wall. */}
+                    <line
+                      class="shot-entrance-guide"
+                      x1={exitWall(m(), 1).x}
+                      y1={exitWall(m(), 1).y}
+                      x2={exitWall(m(), -1).x}
+                      y2={exitWall(m(), -1).y}
+                      vector-effect="non-scaling-stroke"
+                    />
+                    <ArrowHandle
+                      class="shot-width-slider"
+                      at={exitWall(m(), -1)}
+                      along={normal(m().t)}
+                      onPointerDown={dragExitWidth}
+                      title={`${shot.name} exit width: slide out or in to widen or narrow the lane`}
+                    />
+                  </>
+                )}
               </Show>
               <For each={shot.via}>
                 {(point, i) => {
