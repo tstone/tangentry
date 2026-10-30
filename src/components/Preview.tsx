@@ -12,11 +12,14 @@ import { DimensionMarkers } from './Dimensions'
 import LayersControl from './LayersControl'
 import PathColoringControl from './PathColoringControl'
 import ProjectDialog from './ProjectDialog'
+import Toolbar, { SmoothenStatus } from './Toolbar'
 import ReservedAreas, { ReservedMarkers } from './ReservedAreas'
 import SafeTravel from './SafeTravel'
 import ShotLanes, { WallMounts } from './ShotLanes'
-import ShotMarkers from './ShotMarkers'
+import ShotMarkers, { ShotPickers } from './ShotMarkers'
 import ShotPaths from './ShotPaths'
+import SketchPalette, { SketchStrokes } from './Sketch'
+import { activeColor, beginStroke, extendStroke, fitting, sketching } from '../state/sketch'
 
 // Display radius of the flipper pivot marker, in inches.
 const PIVOT_RADIUS = 0.1
@@ -47,9 +50,30 @@ export default function Preview() {
     onCleanup(() => svg.removeEventListener('wheel', wheel))
   })
 
+  // With a sketch color in hand, dragging draws in it.
+  const startStroke = (e: PointerEvent, color: number) => {
+    e.preventDefault()
+    svg.setPointerCapture(e.pointerId)
+    beginStroke(color, toSvg(e))
+    const move = (m: PointerEvent) => extendStroke(color, toSvg(m))
+    const end = () => {
+      svg.removeEventListener('pointermove', move)
+      svg.removeEventListener('pointerup', end)
+      svg.removeEventListener('pointercancel', end)
+    }
+    svg.addEventListener('pointermove', move)
+    svg.addEventListener('pointerup', end)
+    svg.addEventListener('pointercancel', end)
+  }
+
   // Dragging anywhere a handle didn't claim pans the view.
   const startPan = (e: PointerEvent) => {
     if (e.defaultPrevented || e.button !== 0) return
+    const color = activeColor()
+    if (sketching() && color !== null) {
+      if (!fitting()) startStroke(e, color)
+      return
+    }
     const ctm = svg.getScreenCTM()
     if (!ctm) return
     e.preventDefault()
@@ -75,7 +99,7 @@ export default function Preview() {
       <svg
         ref={svg}
         class="preview-canvas"
-        classList={{ 'is-panning': panning() }}
+        classList={{ 'is-panning': panning(), 'is-sketching': sketching(), 'is-drawing': activeColor() !== null }}
         viewBox={viewBox()}
         preserveAspectRatio="xMidYMid meet"
         onPointerDown={startPan}
@@ -181,6 +205,7 @@ export default function Preview() {
         <Show when={visible.paths}>
           <ShotPaths />
         </Show>
+        <ShotPickers />
         <Show when={visible.walls}>
           <WallMounts />
         </Show>
@@ -188,28 +213,37 @@ export default function Preview() {
         <Show when={visible.reserved}>
           <ReservedMarkers />
         </Show>
+        <Show when={sketching()}>
+          <SketchStrokes />
+        </Show>
       </svg>
-      <h1 class="preview-title">Tangentry</h1>
-      <div class="preview-zoom" role="group" aria-label="Zoom">
-        <button type="button" class="preview-zoom-button" aria-label="Zoom out" title="Zoom out" onClick={zoomOut}>
-          −
-        </button>
-        <button
-          type="button"
-          class="preview-zoom-button preview-zoom-level"
-          title="Fit the playfield"
-          onClick={resetView}
-        >
-          {Math.round(zoom() * 100)}%
-        </button>
-        <button type="button" class="preview-zoom-button" aria-label="Zoom in" title="Zoom in" onClick={zoomIn}>
-          +
-        </button>
+      <Show when={sketching()} fallback={<h1 class="preview-title">Tangentry</h1>}>
+        <SketchPalette />
+      </Show>
+      <div class="preview-toolbar">
+        <div class="preview-zoom" role="group" aria-label="Zoom">
+          <button type="button" class="preview-zoom-button" aria-label="Zoom out" title="Zoom out" onClick={zoomOut}>
+            −
+          </button>
+          <button
+            type="button"
+            class="preview-zoom-button preview-zoom-level"
+            title="Fit the playfield"
+            onClick={resetView}
+          >
+            {Math.round(zoom() * 100)}%
+          </button>
+          <button type="button" class="preview-zoom-button" aria-label="Zoom in" title="Zoom in" onClick={zoomIn}>
+            +
+          </button>
+        </div>
+        <Toolbar />
       </div>
       <div class="view-controls">
         <PathColoringControl />
         <LayersControl />
       </div>
+      <SmoothenStatus />
       <ProjectDialog />
     </div>
   )

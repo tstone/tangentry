@@ -9,6 +9,7 @@ const OUTCOMES = [
   { outcome: 'ricochet', label: 'Ricochet' },
   { outcome: 'rattle', label: 'Rattle' },
   { outcome: 'stalls', label: 'Stalls' },
+  { outcome: 'misses', label: 'Misses' },
 ]
 
 function Swatch(props: { class: string; label: string }) {

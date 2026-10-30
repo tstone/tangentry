@@ -1,8 +1,9 @@
 import { For, Show, createMemo } from 'solid-js'
 import { playfield } from '../state/playfield'
 import { selectedId, setSelectedId, shots, updateMount, type WallMount, type WallSide } from '../state/shots'
-import { WALL_SIDES, laneCrossings, laneOutline, shotAnalyses, type LaneWall } from '../state/solutions'
+import { WALL_SIDES, laneCrossings, laneOutlines, shotAnalyses, type LaneWall } from '../state/solutions'
 import { reservedCrossedBy } from '../state/reserved'
+import { hoveredShot } from '../state/view'
 import type { Point } from '../geometry/flipper'
 import { startDrag } from './drag'
 
@@ -21,19 +22,31 @@ export default function ShotLanes() {
         {(analysis) => (
           <Show when={analysis.lane}>
             {(lane) => {
-              const crossesReserved = createMemo(() => reservedCrossedBy(laneOutline(lane())).length > 0)
+              const crossesReserved = createMemo(() =>
+                laneOutlines(lane()).some((outline) => reservedCrossedBy(outline).length > 0),
+              )
               const crossesLane = () => laneCrossings().has(analysis.id)
               return (
                 <g
                   class="shot-lane"
                   classList={{
                     'is-selected': analysis.id === selectedId(),
+                    'is-hovered': analysis.id === hoveredShot(),
                     'is-invalid': lane().tooNarrow || lane().overRail > 0 || crossesReserved() || crossesLane(),
                   }}
                 >
+                  {/* A wall is drawn in pieces, broken where the lane has an open span. */}
                   <For each={lane().walls}>
                     {(wall) => (
-                      <polyline class="shot-lane-wall" points={points(wall.points)} vector-effect="non-scaling-stroke" />
+                      <For each={lane().pieces}>
+                        {([first, last]) => (
+                          <polyline
+                            class="shot-lane-wall"
+                            points={points(wall.points.slice(first, last + 1))}
+                            vector-effect="non-scaling-stroke"
+                          />
+                        )}
+                      </For>
                     )}
                   </For>
                 </g>

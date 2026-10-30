@@ -31,3 +31,20 @@ export function startDrag(event: PointerEvent, onMove: (p: Point) => void, onEnd
   handle.addEventListener('pointercancel', end)
   return true
 }
+
+// A press that moves less than this before it's let go is a click, pixels.
+const CLICK_SLOP = 4
+
+/**
+ * Call `onClick` if a press is let go about where it started. A press that
+ * turns into a drag is left to pan the view as usual.
+ */
+export function clickUnlessDragged(event: PointerEvent, onClick: () => void) {
+  if (event.button !== 0) return
+  const from = { x: event.clientX, y: event.clientY }
+  const release = (up: PointerEvent) => {
+    window.removeEventListener('pointerup', release)
+    if (Math.hypot(up.clientX - from.x, up.clientY - from.y) < CLICK_SLOP) onClick()
+  }
+  window.addEventListener('pointerup', release)
+}

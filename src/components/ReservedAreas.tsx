@@ -1,4 +1,4 @@
-import { For, Match, Switch } from 'solid-js'
+import { For, Match, Switch, onCleanup } from 'solid-js'
 import { playfield } from '../state/playfield'
 import {
   MIN_POLYGON_POINTS,
@@ -13,8 +13,9 @@ import {
   type ReservedCircle,
   type ReservedPolygon,
 } from '../state/reserved'
+import { hoveredReserved, setHoveredReserved } from '../state/view'
 import type { Point } from '../geometry/flipper'
-import { startDrag } from './drag'
+import { clickUnlessDragged, startDrag } from './drag'
 
 // Display radius of the grab dot in the middle of an area, in inches.
 const MOVE_RADIUS = 0.3
@@ -39,36 +40,56 @@ const toSvg = (p: Point) => ({ x: p.x, y: playfield.height - p.y })
 const polygonPoints = (area: ReservedPolygon) =>
   area.points.map((p) => `${p.x},${playfield.height - p.y}`).join(' ')
 
-/** Outlines of the reserved areas, drawn under the lanes. Must be rendered inside the preview SVG. */
+/** Mouse handlers that mark an area hovered while the pointer is over it. */
+const hoverHandlers = (id: number) => ({
+  onPointerEnter: () => setHoveredReserved(id),
+  onPointerLeave: () => setHoveredReserved((hovered) => (hovered === id ? null : hovered)),
+})
+
+/**
+ * Outlines of the reserved areas, drawn under the lanes. Hovering one lights
+ * its move dot; clicking it selects it. Must be rendered inside the preview SVG.
+ */
 export default function ReservedAreas() {
   return (
     <g class="reserved-areas">
       <For each={reserved}>
-        {(area) => (
-          <g class="reserved-area" classList={{ 'is-selected': selectedReservedId() === area.id }}>
-            <Switch>
-              <Match when={area.kind === 'circle' && area}>
-                {(circle) => (
-                  <circle
-                    class="reserved-shape"
-                    cx={circle().center.x}
-                    cy={playfield.height - circle().center.y}
-                    r={circle().radius}
-                    vector-effect="non-scaling-stroke"
-                  />
-                )}
-              </Match>
-              <Match when={area.kind === 'polygon' && area}>
-                {(polygon) => (
-                  <polygon class="reserved-shape" points={polygonPoints(polygon())} vector-effect="non-scaling-stroke" />
-                )}
-              </Match>
-            </Switch>
-            <text class="reserved-label" x={areaCenter(area).x} y={playfield.height - areaCenter(area).y - 0.5}>
-              {area.name}
-            </text>
-          </g>
-        )}
+        {(area) => {
+          onCleanup(() => {
+            if (hoveredReserved() === area.id) setHoveredReserved(null)
+          })
+          return (
+            <g
+              class="reserved-area"
+              classList={{ 'is-selected': selectedReservedId() === area.id, 'is-hovered': hoveredReserved() === area.id }}
+              {...hoverHandlers(area.id)}
+              onPointerDown={(e) => clickUnlessDragged(e, () => setSelectedReservedId(area.id))}
+            >
+              <title>{area.name}: click to select</title>
+              <Switch>
+                <Match when={area.kind === 'circle' && area}>
+                  {(circle) => (
+                    <circle
+                      class="reserved-shape"
+                      cx={circle().center.x}
+                      cy={playfield.height - circle().center.y}
+                      r={circle().radius}
+                      vector-effect="non-scaling-stroke"
+                    />
+                  )}
+                </Match>
+                <Match when={area.kind === 'polygon' && area}>
+                  {(polygon) => (
+                    <polygon class="reserved-shape" points={polygonPoints(polygon())} vector-effect="non-scaling-stroke" />
+                  )}
+                </Match>
+              </Switch>
+              <text class="reserved-label" x={areaCenter(area).x} y={playfield.height - areaCenter(area).y - 0.5}>
+                {area.name}
+              </text>
+            </g>
+          )
+        }}
       </For>
     </g>
   )
@@ -143,7 +164,11 @@ export function ReservedMarkers() {
             })
           }
           return (
-            <g class="reserved-handles" classList={{ 'is-selected': selectedReservedId() === area.id }}>
+            <g
+              class="reserved-handles"
+              classList={{ 'is-selected': selectedReservedId() === area.id, 'is-hovered': hoveredReserved() === area.id }}
+              {...hoverHandlers(area.id)}
+            >
               <Switch>
                 <Match when={area.kind === 'circle' && area}>
                   {(circle) => <CircleHandles area={circle()} grab={grab} />}

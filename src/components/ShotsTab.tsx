@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup } from 'solid-js'
+import { For, Show } from 'solid-js'
 import NumberField from './NumberField'
 import CardName from './CardName'
 import SelectField from './SelectField'
@@ -9,17 +9,20 @@ import {
   HORSESHOE_RADIUS,
   HORSESHOE_ROTATION,
   addMount,
-  addShot,
+  fedBy,
+  feedChain,
   linkShots,
   moveVia,
   removeMount,
   removeVia,
+  removeOpenSpan,
   removeShot,
   renameShot,
   updateMount,
   selectedId,
   setEntrance,
   setExit,
+  setFeed,
   setHorseshoe,
   setLaneEnd,
   setSelectedId,
@@ -34,29 +37,18 @@ import {
 import {
   APPROACHES,
   BALL_STATES,
-  OUTCOME_LABELS,
   WALL_SIDES,
   laneCrossings,
-  laneOutline,
+  laneOutlines,
   selectedAnalysis,
-  selectedSolutions,
-  type Solution,
 } from '../state/solutions'
-import { isHit, type Continuity } from '../geometry/lane'
-import { isHovered, pathColor, setHoveredPath } from '../state/view'
-import type { Departure } from '../physics/shot'
-import { MAX_FLEX, MOUNT_KINDS, type MountKind } from '../physics/wall'
+import type { Continuity } from '../geometry/lane'
+import { MOUNT_KINDS, type MountKind } from '../physics/wall'
 import { suggestMounts } from '../state/mountSuggestions'
-import { insertVia } from '../state/viaPoints'
 import { reservedCrossedBy } from '../state/reserved'
-import { smoothen, type SmoothenResult } from '../state/smoothen'
 import { formatDegrees, formatInches } from './Dimensions'
-
-const DEPARTURE_LABELS: Record<Departure, string> = {
-  tip: 'rolls off the tip',
-  'stroke-end': 'leaves at end of stroke',
-  'lift-off': 'lifts off mid-stroke',
-}
+import { sketching } from '../state/sketch'
+import { log } from '../state/log'
 
 const CONTINUITY_OPTIONS: { label: string; value: Continuity }[] = [
   { label: 'G2 (curvature continuous)', value: 'g2' },
@@ -70,127 +62,12 @@ const ALIGNMENT_OPTIONS: { label: string; value: LaneAlignment }[] = APPROACHES.
   })),
 )
 
-const formatMs = (seconds: number) => `${Math.round(seconds * 1000)} ms`
-
 const MOUNT_OPTIONS: { label: string; value: MountKind }[] = MOUNT_KINDS.map((k) => ({ label: k.label, value: k.id }))
 
 // Slider step, inches. Within a step of the far end counts as the end.
 const STEP = 0.0625
 
 const formatSigned = (inches: number) => (inches > 0 ? `+${formatInches(inches)}` : formatInches(inches))
-
-function SolutionDetails(props: { solution: Solution }) {
-  const s = () => props.solution
-  return (
-    <dl class="shot-solution">
-      <dt>Fire at</dt>
-      <dd>{formatInches(s().fireDistance)} along flipper</dd>
-      <dt>Timing</dt>
-      <dd>{formatMs(s().fireTime)} after reaching base</dd>
-      <dt>Departs</dt>
-      <dd>
-        {formatDegrees(s().departureAngle)} at {Math.round(s().speed)} in/s
-      </dd>
-      <dt />
-      <dd class="shot-solution-note">{DEPARTURE_LABELS[s().departureKind]}</dd>
-      <Show when={s().lane}>
-        {(run) => {
-          const entrySpeed = () => Math.hypot(s().arrivalVelocity.x, s().arrivalVelocity.y)
-          const hits = () => run().bounces.filter(isHit).length
-          const maxFlex = () => Math.max(0, ...run().bounces.map((b) => b.flex))
-          return (
-            <>
-              <dt>Lane</dt>
-              <dd class="shot-outcome">{OUTCOME_LABELS[run().outcome]}</dd>
-              <dt>First hit</dt>
-              <Show
-                when={run().bounces[0]}
-                fallback={
-                  <dd>
-                    <Show when={run().firstTouch} fallback="never touches a wall">
-                      {(t) => (
-                        <>
-                          settles onto wall {formatInches(t().distance)} in at {formatDegrees(t().impactAngle)}
-                        </>
-                      )}
-                    </Show>
-                  </dd>
-                }
-              >
-                {(b) => (
-                  <dd>
-                    {formatInches(b().distance)} in at {formatDegrees(b().impactAngle)}, {Math.round(b().normalSpeed)}{' '}
-                    in/s into wall, {Math.round(b().reboundSpeed)} in/s back off
-                  </dd>
-                )}
-              </Show>
-              <Show when={hits() > 1}>
-                <dt>Hits</dt>
-                <dd>{hits()}</dd>
-              </Show>
-              <Show when={maxFlex() > 0}>
-                <dt>Wall flex</dt>
-                <dd>
-                  {formatInches(maxFlex())} at most
-                  <Show when={maxFlex() > MAX_FLEX}>, over the {formatInches(MAX_FLEX)} limit</Show>
-                </dd>
-              </Show>
-              <Show when={run().exitSpeed}>
-                {(speed) => (
-                  <>
-                    <dt>Exits</dt>
-                    <dd>
-                      {Math.round(speed())} in/s ({Math.round((100 * speed()) / entrySpeed())}% of entry)
-                    </dd>
-                  </>
-                )}
-              </Show>
-            </>
-          )
-        }}
-      </Show>
-    </dl>
-  )
-}
-
-function ShotResults() {
-  return (
-    <For each={selectedSolutions()}>
-      {(flipper) => (
-        <>
-          <h4 class="sidebar-heading">
-            {APPROACHES.find((a) => a.approach === flipper.approach)!.label} · {flipper.side} flipper
-          </h4>
-          <For each={BALL_STATES}>
-            {({ state, label }) => {
-              // A block removed while hovered never sees the mouse leave.
-              onCleanup(() => {
-                if (isHovered(flipper.approach, state)) setHoveredPath(null)
-              })
-              return (
-                <div
-                  class={`shot-state ${pathColor(state, flipper.states[state]).class}`}
-                  classList={{ 'is-hovered': isHovered(flipper.approach, state) }}
-                  style={pathColor(state, flipper.states[state]).style}
-                  onMouseEnter={() => setHoveredPath({ approach: flipper.approach, state })}
-                  onMouseLeave={() => setHoveredPath(null)}
-                >
-                  <div class="shot-state-label">{label}</div>
-                  <Show
-                    when={flipper.states[state]}
-                    fallback={<p class="shot-solution-none">No fire point reaches this entrance.</p>}
-                  >
-                    {(solution) => <SolutionDetails solution={solution()} />}
-                  </Show>
-                </div>
-              )
-            }}
-          </For>
-        </>
-      )}
-    </For>
-  )
-}
 
 function LaneNotes(props: { shot: Shot }) {
   const lane = () => selectedAnalysis()?.lane ?? null
@@ -202,8 +79,11 @@ function LaneNotes(props: { shot: Shot }) {
     >
       {(l) => (
         <>
-          <Show when={l().alignedTo !== props.shot.alignment}>
-            <p class="shot-solution-none">That shot has no solution; lined up with {label(l().alignedTo)} instead.</p>
+          {/* Null for a fed lane, which has no alignment. */}
+          <Show when={l().alignedTo !== props.shot.alignment && l().alignedTo}>
+            {(alignedTo) => (
+              <p class="shot-solution-none">That shot has no solution; lined up with {label(alignedTo())} instead.</p>
+            )}
           </Show>
           <Show when={l().tooNarrow}>
             <p class="shot-solution-none">The lane is narrower than the ball.</p>
@@ -211,7 +91,11 @@ function LaneNotes(props: { shot: Shot }) {
           <Show when={l().overRail > 0}>
             <p class="shot-solution-none">A wall runs {formatInches(l().overRail)} past the side rail.</p>
           </Show>
-          <Show when={reservedCrossedBy(laneOutline(l())).map((a) => a.name || 'a reserved area').join(', ')}>
+          <Show
+            when={[...new Set(laneOutlines(l()).flatMap(reservedCrossedBy))]
+              .map((a) => a.name || 'a custom mech')
+              .join(', ')}
+          >
             {(names) => <p class="shot-solution-none">The lane runs into {names()}.</p>}
           </Show>
           <Show when={laneCrossings().get(props.shot.id)?.map((s) => s.name || 'another lane').join(', ')}>
@@ -321,12 +205,9 @@ function ViaPoints(props: { shot: Shot }) {
           </div>
         )}
       </For>
-      <button type="button" class="wall-mount-add" onClick={() => insertVia(props.shot.id)}>
-        + Add bend point
-      </button>
       <p class="field-note">
-        The lane passes through each point in order. New points go midway along the longest stretch; drag them on the
-        playfield. Double-click a point there to remove it.
+        The lane passes through each point in order. Add them from the toolbar over the playfield; each goes midway
+        along the longest stretch. Drag them there, and double-click one to remove it.
       </p>
     </>
   )
@@ -375,6 +256,41 @@ function WallMounts(props: { shot: Shot; side: WallSide; label: string }) {
       <button type="button" class="wall-mount-add" onClick={() => addMount(props.shot.id, props.side)}>
         + Add mount
       </button>
+    </>
+  )
+}
+
+// Lanes feeding this one are chosen as `feed-${id}`.
+type FeedChoice = 'flippers' | `feed-${number}`
+
+/** Whether the ball is shot into the lane off the flippers or comes out of another lane's exit. */
+function FeedField(props: { shot: Shot }) {
+  const chain = () => feedChain(props.shot)
+  const options = () => [
+    { label: 'The flippers', value: 'flippers' as FeedChoice },
+    // Not from a lane this one feeds, which would loop.
+    ...shots
+      .filter((s) => s.id !== props.shot.id && !feedChain(s).some((c) => c.id === props.shot.id))
+      .map((s) => ({ label: `${s.name}'s exit`, value: `feed-${s.id}` as FeedChoice })),
+  ]
+  const value = (): FeedChoice => (chain().length > 0 ? `feed-${props.shot.feed!}` : 'flippers')
+  return (
+    <>
+      <SelectField
+        label="Ball comes from"
+        options={options()}
+        value={value()}
+        onChange={(choice) => {
+          if (choice === value()) return
+          setFeed(props.shot.id, choice === 'flippers' ? null : Number(choice.slice('feed-'.length)))
+        }}
+      />
+      <Show when={chain().length > 0}>
+        <p class="field-note">
+          The ball leaves {chain().at(-1)!.name}'s exit and crosses open playfield into this lane, which starts out
+          pointing straight from there. Its ball paths are the shots into {chain()[0].name}, run on through each lane.
+        </p>
+      </Show>
     </>
   )
 }
@@ -436,81 +352,38 @@ function HorseshoeFields(props: { shot: Shot }) {
   )
 }
 
-const paths = (n: number) => `${n} ball path${n === 1 ? '' : 's'}`
-
-function Smoothen(props: { shot: Shot }) {
-  const [result, setResult] = createSignal<SmoothenResult | null>(null)
-  // Lane shapes tried out of the most the search will try, while it runs.
-  const [progress, setProgress] = createSignal<{ tried: number; most: number } | null>(null)
-  const run = async () => {
-    setResult(null)
-    setProgress({ tried: 0, most: 1 })
-    try {
-      setResult(await smoothen(props.shot.id, (tried, most) => setProgress({ tried, most })))
-    } finally {
-      setProgress(null)
-    }
-  }
+/** Stretches of the lane left without walls, as sketching makes them. */
+function OpenSpans(props: { shot: Shot }) {
+  const laneLength = () => selectedAnalysis()?.lane?.exitDistance ?? 0
   return (
-    <>
-      <button
-        type="button"
-        class="wall-mount-add smoothen-button"
-        title="Adjust the entrance offset, lead-in, weights, funnel and bend points so the ball gets through more cleanly"
-        disabled={progress() !== null}
-        aria-busy={progress() !== null}
-        onClick={run}
-      >
-        <Show when={progress()} fallback="Smoothen">
-          <span class="spinner" aria-hidden="true" />
-          Smoothing…
-        </Show>
-      </button>
-      <Show when={progress()}>
-        {(p) => (
-          <div
-            class="smoothen-progress"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={p().most}
-            aria-valuenow={p().tried}
-          >
-            <div class="smoothen-progress-bar" style={{ width: `${(100 * p().tried) / p().most}%` }} />
+    <Show when={props.shot.openSpans.length > 0}>
+      <h4 class="sidebar-heading">Open spans</h4>
+      <For each={props.shot.openSpans}>
+        {(span, i) => (
+          <div class="wall-mount-header">
+            <span class="via-point-label">
+              {formatInches(span.from * laneLength())} to {formatInches(span.to * laneLength())} from entrance
+            </span>
+            <button
+              type="button"
+              class="icon-button"
+              aria-label={`Close open span ${i() + 1}`}
+              title="Put the walls back"
+              onClick={() => {
+                removeOpenSpan(props.shot.id, i())
+                log(`Put the walls back over an open span of ${props.shot.name}.`)
+              }}
+            >
+              −
+            </button>
           </div>
         )}
-      </Show>
+      </For>
       <p class="field-note">
-        <Show
-          when={!progress()}
-          fallback={`Tried ${progress()?.tried ?? 0} lane shapes so far. Stops early once every ball path runs smooth.`}
-        >
-          <Show
-            when={result()}
-            fallback={
-              props.shot.end === 'horseshoe' && props.shot.link === null
-                ? 'Tries entrance offset, lead-in, weights, funnel length and moving bend points up to 2" to cut down wall hits. Also slides where the lane meets the horseshoe around it, keeping its center and the way out, and tries a bend point before the exit to lead into it. Leaves the entrance, widths and mounts alone.'
-                : 'Tries entrance offset, lead-in, weights, funnel length and moving bend points up to 2" to cut down wall hits. Leaves the ends, widths and mounts alone.'
-            }
-          >
-            {(r) => (
-              <Show
-                when={r().changed}
-                fallback={
-                  r().stale
-                    ? 'The lane changed while smoothing, so nothing was applied. Try again.'
-                    : "Couldn't find anything smoother."
-                }
-              >
-                <Show when={r().before !== r().after} fallback={`Hits softened; ${paths(r().after)} still not smooth.`}>
-                  Rough {paths(r().before)} down to {r().after}.
-                </Show>
-                <Show when={r().addedVia}> Added a bend point to lead into the horseshoe.</Show>
-              </Show>
-            )}
-          </Show>
-        </Show>
+        No walls here, leaving room for balls on their way to other shots. This lane's ball runs free across each
+        span and has to land back between the walls.
       </p>
-    </>
+    </Show>
   )
 }
 
@@ -533,7 +406,10 @@ function ShotCard(props: { shot: Shot }) {
           class="icon-button"
           aria-label={`Remove ${props.shot.name}`}
           title="Remove shot"
-          onClick={() => removeShot(props.shot.id)}
+          onClick={() => {
+            log(`Removed ${props.shot.name}.`)
+            removeShot(props.shot.id)
+          }}
         >
           −
         </button>
@@ -560,6 +436,7 @@ function ShotCard(props: { shot: Shot }) {
             onChange={(y) => setEntrance(props.shot.id, { y })}
           />
         </div>
+        <FeedField shot={props.shot} />
         <NumberField
           label="Width"
           unit="in"
@@ -619,10 +496,22 @@ function ShotCard(props: { shot: Shot }) {
             <Show
               when={props.shot.end === 'horseshoe'}
               fallback={
-                <p class="field-note">
-                  Drag the exit or its direction handle onto another lane's exit to join the two into one lane, as an
-                  orbit is.
-                </p>
+                <Show
+                  when={fedBy(props.shot.id)}
+                  fallback={
+                    <p class="field-note">
+                      Drag the exit or its direction handle onto another lane's exit to join the two into one lane, as
+                      an orbit is.
+                    </p>
+                  }
+                >
+                  {(next) => (
+                    <p class="field-note">
+                      Feeds {next().name}: the ball leaves here and crosses open playfield into its entrance. Aim the
+                      exit direction at it.
+                    </p>
+                  )}
+                </Show>
               }
             >
               <HorseshoeFields shot={props.shot} />
@@ -652,18 +541,22 @@ function ShotCard(props: { shot: Shot }) {
           Ramp
         </label>
         <p class="field-note">A ramp can pass over other lanes; lanes on the playfield can't cross.</p>
+        <OpenSpans shot={props.shot} />
         <SelectField
           label="Continuity"
           options={CONTINUITY_OPTIONS}
           value={props.shot.continuity}
           onChange={(continuity) => updateShot(props.shot.id, { continuity })}
         />
-        <SelectField
-          label="Entrance lined up with"
-          options={ALIGNMENT_OPTIONS}
-          value={props.shot.alignment}
-          onChange={(alignment) => updateShot(props.shot.id, { alignment })}
-        />
+        {/* A fed lane lines up with the exit feeding it instead. */}
+        <Show when={feedChain(props.shot).length === 0}>
+          <SelectField
+            label="Entrance lined up with"
+            options={ALIGNMENT_OPTIONS}
+            value={props.shot.alignment}
+            onChange={(alignment) => updateShot(props.shot.id, { alignment })}
+          />
+        </Show>
         <NumberField
           label="Entrance weight"
           unit="×"
@@ -683,7 +576,6 @@ function ShotCard(props: { shot: Shot }) {
           onChange={(exitWeight) => updateShot(props.shot.id, { exitWeight })}
         />
         <LaneNotes shot={props.shot} />
-        <Smoothen shot={props.shot} />
 
         <details class="wall-mounts">
           <summary class="sidebar-heading">
@@ -699,7 +591,10 @@ function ShotCard(props: { shot: Shot }) {
           type="button"
           class="wall-mount-add"
           title="Replace both walls' mounts with ones placed for this shot's hits"
-          onClick={() => suggestMounts(props.shot.id)}
+          onClick={() => {
+            suggestMounts(props.shot.id)
+            log(`Suggested wall mounts for ${props.shot.name}.`)
+          }}
         >
           + Suggest
         </button>
@@ -707,8 +602,6 @@ function ShotCard(props: { shot: Shot }) {
           Mounts at each end, then wherever a hit would flex the wall more than 0.03". Spade bolts, or spikes
           where a side rail or another wall leaves no room. Replaces the current mounts.
         </p>
-
-        <ShotResults />
       </Show>
     </section>
   )
@@ -719,14 +612,21 @@ export default function ShotsTab() {
     <>
       <div class="shots-toolbar">
         <h2 class="sidebar-heading">Shots</h2>
-        <button type="button" class="icon-button" aria-label="Add shot" title="Add shot" onClick={() => addShot()}>
-          +
-        </button>
       </div>
 
-      <Show when={shots.length > 0} fallback={<p class="sidebar-empty">No shots yet. Click + to add one.</p>}>
-        <For each={shots}>{(shot) => <ShotCard shot={shot} />}</For>
+      <Show when={sketching()}>
+        <p class="field-note sketch-hint">
+          Pick a color above the playfield and draw a lane, one color for each shot. Shots can't be edited while
+          sketching. Finish fits a smooth lane to each color.
+        </p>
       </Show>
+
+      {/* Shots are locked while sketching. */}
+      <div class="shot-list" classList={{ 'is-locked': sketching() }} inert={sketching()}>
+        <Show when={shots.length > 0} fallback={<p class="sidebar-empty">No shots yet. Add or sketch one from the toolbar over the playfield.</p>}>
+          <For each={shots}>{(shot) => <ShotCard shot={shot} />}</For>
+        </Show>
+      </div>
     </>
   )
 }

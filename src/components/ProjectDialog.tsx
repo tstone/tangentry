@@ -5,6 +5,7 @@ import { DownloadTrigger } from '@ark-ui/solid/download-trigger'
 import { FileUpload } from '@ark-ui/solid/file-upload'
 import { Tabs } from '@ark-ui/solid/tabs'
 import { exportProjectJson, importProject } from '../state/project'
+import { log } from '../state/log'
 
 const FILE_NAME = 'tangentry.json'
 
@@ -16,6 +17,7 @@ export default function ProjectDialog() {
   const load = async (file: File) => {
     try {
       importProject(await file.text())
+      log(`Imported project ${file.name}.`)
       setOpen(false)
     } catch (e) {
       setError(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)

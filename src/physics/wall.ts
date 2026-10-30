@@ -120,23 +120,21 @@ export function wallStiffness(wall: Point[], mounts: Mount[], spec: WallSpec): n
     }
   }
 
-  const x = new Float64Array(n)
-  return wall.map((_, node) => {
-    // Unit sideways push at this node.
-    x.fill(0)
-    x[2 * node] = 1
-    for (let i = 0; i < n; i++) {
-      let sum = x[i]
-      for (let k = Math.max(0, i - BAND); k < i; k++) sum -= at(i, k) * x[k]
-      x[i] = sum / at(i, i)
+  // How far each node moves under a unit push there is the diagonal of the
+  // inverse. Only the inverse's entries within the band are needed to get
+  // it (Takahashi's recurrence), working back from the last row:
+  // z(i, j) = (δij / l(i, i) − Σ l(k, i)·z(k, j)) / l(i, i), over k past i.
+  const z = new Float64Array(n * width)
+  const zAt = (i: number, j: number) => (i >= j ? z[i * width + (i - j)] : z[j * width + (j - i)])
+  for (let i = n - 1; i >= 0; i--) {
+    const last = Math.min(n - 1, i + BAND)
+    for (let j = last; j >= i; j--) {
+      let sum = j === i ? 1 / at(i, i) : 0
+      for (let k = i + 1; k <= last; k++) sum -= at(k, i) * zAt(k, j)
+      z[j * width + (j - i)] = sum / at(i, i)
     }
-    for (let i = n - 1; i >= 0; i--) {
-      let sum = x[i]
-      for (let k = i + 1; k <= Math.min(n - 1, i + BAND); k++) sum -= at(k, i) * x[k]
-      x[i] = sum / at(i, i)
-    }
-    return 1 / x[2 * node]
-  })
+  }
+  return wall.map((_, node) => 1 / z[2 * node * width])
 }
 
 /**

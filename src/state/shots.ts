@@ -63,13 +63,25 @@ export type Shot = {
   // an orbit is: a ball shot into either comes out of the other's entrance.
   // Joined exits share a point and width and point opposite ways.
   link: number | null
+  // Shot whose exit feeds this one's entrance: the ball leaves that lane,
+  // crosses open playfield and comes into this one, as where a lane is cut
+  // to leave room for balls on their way to other shots. A fed shot isn't
+  // shot from the flippers; its ball comes through the lanes feeding it.
+  feed: number | null
   // What the lane does past its exit when it isn't joined to another.
   end: LaneEnd
   horseshoe: Horseshoe
   // A ramp rises off the playfield, so it may pass over other lanes.
   // Lanes on the playfield can't cross each other.
   ramp: boolean
+  // Stretches with no walls, where the lane crosses space the ball needs
+  // clear to reach other shots. The ball runs free across each one.
+  openSpans: OpenSpan[]
 }
+
+// Where an open span starts and ends along the lane, as fractions of the
+// distance to the exit, so it stays put relative to the lane as it's reshaped.
+export type OpenSpan = { from: number; to: number }
 
 // Open lanes end at the exit; a horseshoe carries the lane on around a
 // circular turn from there, keeping the exit width.
@@ -92,51 +104,81 @@ export type ViaPoint = Entrance & { id: number }
 const [shots, setShots] = createStore<Shot[]>([])
 
 // The shot whose ball paths are shown on the playfield.
-const [selectedId, setSelectedId] = createSignal<number | null>(null)
+const [selectedId, setSelected] = createSignal<number | null>(null)
+
+// The shot last picked out by the user, as by clicking or adding it. Not
+// changed when the selection only moves on from a removed or replaced shot.
+const [pickedId, setPickedId] = createSignal<number | null>(null, { equals: false })
+
+/** Select a shot the user picked out. */
+export function setSelectedId(id: number | null) {
+  if (id !== null && id !== selectedId()) setPickedId(id)
+  setSelected(id)
+}
+
+export { pickedId }
 
 export const selectedShot = () => shots.find((shot) => shot.id === selectedId())
 
 let nextId = 1
 let nextMountId = 1
+let nextViaId = 1
 
 export const DEFAULT_HORSESHOE: Horseshoe = { rotation: 180, radius: 2.5 }
 
-// Spade bolts near each end and a spike between.
-const defaultMounts = (): WallMount[] => [
-  { id: nextMountId++, kind: 'spade', at: 0.05 },
-  { id: nextMountId++, kind: 'spike', at: 0.5 },
-  { id: nextMountId++, kind: 'spade', at: 0.95 },
+// Spade bolts near each end and a spike between, given ids by `id`.
+const defaultMounts = (id: () => number): WallMount[] => [
+  { id: id(), kind: 'spade', at: 0.05 },
+  { id: id(), kind: 'spike', at: 0.5 },
+  { id: id(), kind: 'spade', at: 0.95 },
 ]
 
-type NewShot = Partial<Omit<Shot, 'id' | 'via' | 'mounts' | 'link' | 'end' | 'horseshoe'>>
+/**
+ * A new shot's settings, with its lane from `entrance` straight up the
+ * playfield. Not added to the shots; ids are placeholders.
+ */
+export const shotDefaults = (entrance: Entrance): Shot => ({
+  id: -1,
+  name: '',
+  entrance,
+  entranceWidth: 2.5,
+  exitWidth: 2.25,
+  exit: { x: entrance.x, y: entrance.y + 6, angle: 90 },
+  continuity: 'g2',
+  entranceWeight: 1,
+  exitWeight: 1,
+  alignment: 'cross-inlane',
+  ramp: false,
+  entranceOffset: 0,
+  leadIn: 0,
+  funnelLength: Infinity,
+  via: [],
+  mounts: { left: defaultMounts(() => -1), right: defaultMounts(() => -1) },
+  link: null,
+  feed: null,
+  end: 'open',
+  horseshoe: { ...DEFAULT_HORSESHOE },
+  openSpans: [],
+})
 
+type NewShot = Partial<Omit<Shot, 'id' | 'via' | 'mounts' | 'link'>> & { via?: Entrance[] }
+
+/** Add a shot and select it, returning its id. */
 export function addShot(options: NewShot = {}) {
   const id = nextId++
   // Start somewhere in the upper playfield; the user will drag it into place.
   const entrance = options.entrance ?? { x: playfield.width / 2, y: playfield.height * 0.6 }
   setShots(shots.length, {
+    ...shotDefaults(entrance),
     name: `Shot ${id}`,
-    entranceWidth: 2.5,
-    exitWidth: 2.25,
-    exit: { x: entrance.x, y: entrance.y + 6, angle: 90 },
-    continuity: 'g2',
-    entranceWeight: 1,
-    exitWeight: 1,
-    alignment: 'cross-inlane',
-    ramp: false,
-    entranceOffset: 0,
-    leadIn: 0,
-    funnelLength: Infinity,
     ...options,
     id,
-    entrance,
-    via: [],
-    mounts: { left: defaultMounts(), right: defaultMounts() },
-    link: null,
-    end: 'open',
-    horseshoe: { ...DEFAULT_HORSESHOE },
+    horseshoe: { ...(options.horseshoe ?? DEFAULT_HORSESHOE) },
+    via: (options.via ?? []).map((p) => ({ id: nextViaId++, x: p.x, y: p.y })),
+    mounts: { left: defaultMounts(() => nextMountId++), right: defaultMounts(() => nextMountId++) },
   })
   setSelectedId(id)
+  return id
 }
 
 // Start with a shot so there's something to look at.
@@ -152,10 +194,12 @@ addShot({
 export function removeShot(id: number) {
   const index = shots.findIndex((shot) => shot.id === id)
   unlinkShot(id)
+  // A shot it fed is shot from the flippers again.
+  stopFeeding(id)
   setShots((list) => list.filter((shot) => shot.id !== id))
   if (selectedId() === id) {
     // Select the neighbor that slid into its place, or the new last shot.
-    setSelectedId(shots[Math.min(index, shots.length - 1)]?.id ?? null)
+    setSelected(shots[Math.min(index, shots.length - 1)]?.id ?? null)
   }
 }
 
@@ -193,6 +237,9 @@ export function linkShots(id: number, to: number) {
   batch(() => {
     unlinkShot(id)
     unlinkShot(to)
+    // Joined exits lead into each other, not on to another lane.
+    stopFeeding(id)
+    stopFeeding(to)
     setShots((shot) => shot.id === id, {
       exit: { x: target.exit.x, y: target.exit.y, angle: opposite(target.exit.angle) },
       exitWidth: target.exitWidth,
@@ -207,6 +254,8 @@ export function linkShots(id: number, to: number) {
 export function setLaneEnd(id: number, end: LaneEnd) {
   batch(() => {
     unlinkShot(id)
+    // A horseshoe turns the ball away from the lane it fed.
+    if (end === 'horseshoe') stopFeeding(id)
     setShots((shot) => shot.id === id, 'end', end)
   })
 }
@@ -243,6 +292,49 @@ export function unlinkShot(id: number) {
   setShots((shot) => shot.id === id || shot.link === id, 'link', null)
 }
 
+/**
+ * The shots feeding `shot`, from the one shot off the flippers on to the one
+ * whose exit leads into it. Empty if it isn't fed, or if its feeders are
+ * missing or loop back on themselves, when it's shot off the flippers.
+ */
+export function feedChain(shot: Shot): Shot[] {
+  const chain: Shot[] = []
+  let at = shot
+  while (at.feed !== null) {
+    const from = shots.find((s) => s.id === at.feed)
+    if (!from || from.id === shot.id || chain.some((s) => s.id === from.id)) return []
+    chain.unshift(from)
+    at = from
+  }
+  return chain
+}
+
+/** The shot whose entrance `id`'s exit leads into, if any. */
+export const fedBy = (id: number) => shots.find((s) => s.feed === id && s.id !== id)
+
+/**
+ * Have shot `from`'s exit lead into `id`'s entrance, or with null shoot `id`
+ * off the flippers again. The feeding lane is left open at its exit, and
+ * stops feeding any other. Ignored if it would make a loop.
+ */
+export function setFeed(id: number, from: number | null) {
+  if (from !== null) {
+    const feeder = shots.find((s) => s.id === from)
+    if (!feeder || from === id || feedChain(feeder).some((s) => s.id === id)) return
+  }
+  batch(() => {
+    if (from !== null) {
+      unlinkShot(from)
+      stopFeeding(from)
+      setShots((shot) => shot.id === from, 'end', 'open')
+    }
+    setShots((shot) => shot.id === id, 'feed', from)
+  })
+}
+
+/** Shoot the shot `id` feeds, if any, off the flippers instead. */
+const stopFeeding = (id: number) => setShots((shot) => shot.feed === id, 'feed', null)
+
 export function updateShot(
   id: number,
   changes: Partial<
@@ -271,8 +363,6 @@ export function updateShot(
   })
 }
 
-let nextViaId = 1
-
 /** Insert a via point at `index` among the shot's via points. */
 export function addVia(id: number, index: number, at: Entrance) {
   setShots((s) => s.id === id, 'via', (list) => [...list.slice(0, index), { id: nextViaId++, ...at }, ...list.slice(index)])
@@ -284,6 +374,11 @@ export function moveVia(id: number, viaId: number, at: Partial<Entrance>) {
 
 export function removeVia(id: number, viaId: number) {
   setShots((s) => s.id === id, 'via', (list) => list.filter((v) => v.id !== viaId))
+}
+
+/** Put walls back along an open span, by its position among the shot's spans. */
+export function removeOpenSpan(id: number, index: number) {
+  setShots((s) => s.id === id, 'openSpans', (list) => list.filter((_, i) => i !== index))
 }
 
 /** Add a spike in the middle of the widest gap between a wall's mounts. */
@@ -325,8 +420,8 @@ export function replaceShots(list: Shot[]) {
   nextMountId = maxId(list.flatMap((s) => [...s.mounts.left, ...s.mounts.right].map((m) => m.id))) + 1
   batch(() => {
     setShots(list)
-    setSelectedId(list[0]?.id ?? null)
+    setSelected(list[0]?.id ?? null)
   })
 }
 
-export { shots, selectedId, setSelectedId }
+export { shots, selectedId }

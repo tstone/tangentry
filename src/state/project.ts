@@ -5,7 +5,15 @@ import { inlanes, setInlanes, type Inlanes } from './inlanes'
 import { playfield, setPlayfield, type Playfield } from './playfield'
 import { walls, setWalls, type Walls } from './walls'
 import { clearPlayfieldImage } from './playfieldImage'
-import { DEFAULT_HORSESHOE, replaceShots, shots, type LaneAlignment, type Shot, type WallMount } from './shots'
+import {
+  DEFAULT_HORSESHOE,
+  replaceShots,
+  shots,
+  type LaneAlignment,
+  type OpenSpan,
+  type Shot,
+  type WallMount,
+} from './shots'
 import { replaceReserved, reserved, type ReservedArea } from './reserved'
 import { COILS, MATERIALS } from '../physics/drive'
 import { MOUNT_KINDS, WALL_MATERIALS } from '../physics/wall'
@@ -114,6 +122,9 @@ function readShot(input: unknown, path: string): Shot {
   }
   if (!Array.isArray(s.via)) throw new Error(`${path}.via should be a list.`)
   if (s.link !== null && !isNumber(s.link)) throw new Error(`${path}.link should be a shot id or null.`)
+  // Missing from files saved before lanes could feed one another.
+  const feed = s.feed ?? null
+  if (feed !== null && !isNumber(feed)) throw new Error(`${path}.feed should be a shot id or null.`)
   if (s.funnelLength !== null && !isNumber(s.funnelLength)) throw new Error(`${path}.funnelLength should be a number or null.`)
 
   return {
@@ -136,6 +147,7 @@ function readShot(input: unknown, path: string): Shot {
     })),
     mounts: { left: readMounts('left'), right: readMounts('right') },
     link: s.link,
+    feed,
     // Missing from files saved before ramps.
     ramp: s.ramp === true,
     // Missing from files saved before lanes could end in a horseshoe.
@@ -146,13 +158,24 @@ function readShot(input: unknown, path: string): Shot {
         : {
             rotation: number(object(s.horseshoe, `${path}.horseshoe`).rotation, `${path}.horseshoe.rotation`),
             radius: number(object(s.horseshoe, `${path}.horseshoe`).radius, `${path}.horseshoe.radius`),          },
+    // Missing from files saved before lanes could have open spans.
+    openSpans: readOpenSpans(s.openSpans, `${path}.openSpans`),
   }
+}
+
+function readOpenSpans(input: unknown, path: string): OpenSpan[] {
+  if (input === undefined) return []
+  if (!Array.isArray(input)) throw new Error(`${path} should be a list.`)
+  return input.map((g, i) => {
+    const span = object(g, `${path}[${i}]`)
+    return { from: number(span.from, `${path}[${i}].from`), to: number(span.to, `${path}[${i}].to`) }
+  })
 }
 
 function readReserved(input: unknown, path: string): ReservedArea {
   const r = object(input, path)
   const id = number(r.id, `${path}.id`)
-  const name = typeof r.name === 'string' ? r.name : `Reserved ${id}`
+  const name = typeof r.name === 'string' ? r.name : `Custom Mech ${id}`
   // Missing from files saved before areas could be shot at.
   const shootable = r.shootable === true
   if (r.kind === 'circle') {
@@ -212,10 +235,14 @@ export function importProject(json: string) {
     })(),
   }
 
-  // A join only holds if both lanes made it into the file.
+  // A join or feed only holds if both lanes made it into the file.
   const present = new Set(next.shots.map((s) => s.id))
   if (present.size !== next.shots.length) throw new Error('Two shots share an id.')
-  const shotList = next.shots.map((s) => (s.link !== null && !present.has(s.link) ? { ...s, link: null } : s))
+  const shotList = next.shots.map((s) => ({
+    ...s,
+    link: s.link !== null && present.has(s.link) ? s.link : null,
+    feed: s.feed !== null && present.has(s.feed) ? s.feed : null,
+  }))
 
   batch(() => {
     setPlayfield(next.playfield)
@@ -229,13 +256,27 @@ export function importProject(json: string) {
 }
 
 // Captured as the app starts, before anything is changed or restored.
-const DEFAULT_PROJECT_JSON = exportProjectJson()
+const DEFAULT_PROJECT = exportProject()
 
-/** Put every setting and shot back to how the app starts out, and drop the playfield image. */
-export function resetProject() {
+export type ResetParts = { setup: boolean; reserved: boolean; shots: boolean }
+
+/**
+ * Start parts of the project over. Setup goes back to how the app starts out
+ * and drops the playfield image; reserved areas and shots are cleared, as
+ * the shot the app starts with is only there as an example.
+ */
+export function resetProject(parts: ResetParts) {
   batch(() => {
-    importProject(DEFAULT_PROJECT_JSON)
-    clearPlayfieldImage()
+    if (parts.setup) {
+      setPlayfield(plain(DEFAULT_PROJECT.playfield))
+      setFlippers(plain(DEFAULT_PROJECT.flippers))
+      setInlanes(plain(DEFAULT_PROJECT.inlanes))
+      setBall(plain(DEFAULT_PROJECT.ball))
+      setWalls(plain(DEFAULT_PROJECT.walls))
+      clearPlayfieldImage()
+    }
+    if (parts.reserved) replaceReserved([])
+    if (parts.shots) replaceShots([])
   })
 }
 

@@ -20,6 +20,7 @@ import {
   type ReservedPolygon,
 } from '../state/reserved'
 import { formatInches } from './Dimensions'
+import { log } from '../state/log'
 
 function CircleFields(props: { area: ReservedCircle }) {
   return (
@@ -133,8 +134,11 @@ function ReservedCard(props: { area: ReservedArea }) {
           type="button"
           class="icon-button"
           aria-label={`Remove ${props.area.name}`}
-          title="Remove reserved area"
-          onClick={() => removeReserved(props.area.id)}
+          title="Remove custom mech"
+          onClick={() => {
+            log(`Removed ${props.area.name}.`)
+            removeReserved(props.area.id)
+          }}
         >
           −
         </button>
@@ -164,22 +168,28 @@ export default function ReservedTab() {
   return (
     <>
       <div class="shots-toolbar">
-        <h2 class="sidebar-heading">Reserved</h2>
+        <h2 class="sidebar-heading">Custom mechs</h2>
         <div class="reserved-add">
-          <button type="button" class="wall-mount-add" onClick={() => addReserved('circle')}>
+          <button type="button" class="wall-mount-add" onClick={() => {
+              addReserved('circle')
+              log(`Added ${reserved.at(-1)?.name ?? 'a custom mech'}, a circle.`)
+            }}>
             + Circle
           </button>
-          <button type="button" class="wall-mount-add" onClick={() => addReserved('polygon')}>
+          <button type="button" class="wall-mount-add" onClick={() => {
+              addReserved('polygon')
+              log(`Added ${reserved.at(-1)?.name ?? 'a custom mech'}, a polygon.`)
+            }}>
             + Polygon
           </button>
         </div>
       </div>
       <p class="reserved-intro field-note">
         Mark space on the playfield held for mechs, toys, scoops and other features, so lanes can be laid out around
-        them. Reserved areas are only markers; they don't affect the ball.
+        them. Custom mechs are only markers; they don't affect the ball.
       </p>
 
-      <Show when={reserved.length > 0} fallback={<p class="sidebar-empty">Nothing reserved yet.</p>}>
+      <Show when={reserved.length > 0} fallback={<p class="sidebar-empty">No custom mechs yet.</p>}>
         <For each={reserved}>{(area) => <ReservedCard area={area} />}</For>
       </Show>
     </>

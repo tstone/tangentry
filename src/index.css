@@ -185,11 +185,124 @@ body {
   user-select: none;
 }
 
-/* Zoom buttons, overlaid top left of the preview. */
-.preview-zoom {
+/* Sketch colors and Finish, in place of the title while sketching. */
+.sketch-bar {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sketch-palette {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.sketch-swatch {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 2px solid #000;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+/* The color in hand. */
+.sketch-swatch.is-active {
+  outline: 2px solid var(--fg);
+  outline-offset: 1px;
+}
+
+.sketch-swatch:disabled {
+  cursor: progress;
+}
+
+.sketch-button {
+  height: 2rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sketch-button:hover:not(:disabled) {
+  border-color: var(--fg-muted);
+}
+
+.sketch-button:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+
+.sketch-finish {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-color: var(--accent);
+}
+
+.sketch-finish[aria-busy='true'] {
+  color: var(--fg);
+  cursor: progress;
+}
+
+.sketch-progress {
+  flex-basis: 100%;
+}
+
+/* While sketching, nothing on the playfield can be grabbed. */
+.preview-canvas.is-sketching * {
+  pointer-events: none;
+}
+
+.preview-canvas.is-sketching.is-drawing {
+  cursor: crosshair;
+}
+
+.sketch-stroke {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Zoom, with the tools in a column below it, overlaid top left of the preview. */
+.preview-toolbar {
   position: absolute;
   top: 1rem;
   left: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+/* The zoom level takes up any extra width, so the zoom row lines up with the tools below. */
+.preview-zoom .preview-zoom-level {
+  flex: 1;
+}
+
+.tool-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tool-strip-divider {
+  height: 1px;
+  margin: 0.25rem 0;
+  background: var(--border);
+}
+
+.preview-zoom {
   display: flex;
   gap: 0.25rem;
 }
@@ -220,6 +333,104 @@ body {
   position: absolute;
   right: 1rem;
   bottom: 1rem;
+}
+
+/* Icon and name, left aligned. */
+.toolbar-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.toolbar-icon-button .spinner {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  box-sizing: border-box;
+}
+
+.toolbar-icon {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Hollow node on the bend point icon. */
+.toolbar-icon-node {
+  fill: var(--panel);
+}
+
+.toolbar-icon-button.is-active {
+  border-color: var(--accent);
+}
+
+.toolbar-icon-button:disabled {
+  color: var(--fg-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toolbar-icon-button[aria-busy='true'] {
+  opacity: 1;
+  cursor: progress;
+}
+
+/* Log, on the Analysis tab. */
+.log-clear {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.log-clear:hover:not(:disabled) {
+  color: var(--fg);
+}
+
+.log-clear:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+.log-entry {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.log-time {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.log-swatch {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-right: 0.4rem;
+  border: 1px solid #000;
+  vertical-align: -0.05rem;
 }
 
 .project-backdrop {
@@ -322,6 +533,48 @@ body {
 
 .project-dropzone .wall-mount-add {
   align-self: center;
+}
+
+.reset-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(26rem, 100%);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.reset-header {
+  min-height: 3rem;
+}
+
+.reset-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.reset-part {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.reset-part .switch-field {
+  font-size: 1rem;
+}
+
+.reset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.reset-confirm:not(:disabled) {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
 }
 
 .project-error {
@@ -682,6 +935,16 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.sketch-hint {
+  margin: 0;
+  padding: 0.75rem 1rem 0;
+}
+
+/* Shot cards can't be edited while sketching. */
+.shot-list.is-locked {
+  opacity: 0.45;
+}
+
 .sidebar-empty {
   margin: 0;
   padding: 1rem;
@@ -762,8 +1025,60 @@ body {
   stroke-width: 1.5;
 }
 
+/* From the exit feeding a lane to its entrance. */
+.shot-feed {
+  stroke: #6bc5ff;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: 0.7;
+}
+
+/* Only the selected shot has handles; others are picked by their lane. */
 .shot-markers:not(.is-selected) {
-  opacity: 0.45;
+  display: none;
+}
+
+/* A lane being dragged onto shows its exit to join to. */
+.shot-markers.is-link-target:not(.is-selected) {
+  display: inline;
+  opacity: 0.6;
+}
+
+.shot-lane-mounts .shot-lane:not(.is-selected) {
+  display: none;
+}
+
+.shot-picker {
+  cursor: pointer;
+}
+
+/* Invisible, as wide as the lane. */
+.shot-picker-lane {
+  fill: none;
+  stroke: transparent;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: stroke;
+}
+
+.shot-picker-entrance {
+  fill: #ff6bcb;
+  stroke: var(--bg);
+  stroke-width: 1.5;
+  opacity: 0;
+  pointer-events: all;
+  transition: opacity 0.12s;
+}
+
+/* A shot with no lane to hover is picked by its entrance alone. */
+.shot-picker:not(.has-lane) .shot-picker-entrance {
+  opacity: 0.35;
+}
+
+.shot-picker.is-hovered .shot-picker-entrance {
+  opacity: 1;
+  stroke: #fff;
+  stroke-width: 2;
 }
 
 /* Shot lanes */
@@ -773,6 +1088,10 @@ body {
 
 .shot-lane.is-selected {
   opacity: 1;
+}
+
+.shot-lane.is-hovered {
+  opacity: 0.85;
 }
 
 .shot-lane-wall {
@@ -808,6 +1127,10 @@ body {
 .outcome--none,
 .outcome--stalls {
   --path-color: var(--fg-muted);
+}
+
+.outcome--misses {
+  --path-color: #b07cff;
 }
 
 .outcome--smooth {
@@ -1067,17 +1390,6 @@ body {
   cursor: pointer;
 }
 
-.smoothen-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.smoothen-button:disabled {
-  color: var(--fg);
-  cursor: progress;
-}
-
 .spinner {
   width: 0.8em;
   height: 0.8em;
@@ -1091,6 +1403,36 @@ body {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Smoothen's progress, overlaid bottom center of the preview. */
+.smoothen-status {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(32rem, calc(100% - 20rem));
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  font-size: 0.85rem;
+}
+
+.smoothen-status-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.smoothen-status-note {
+  margin-left: auto;
+  color: var(--fg-muted);
+  text-align: right;
 }
 
 .smoothen-progress {
@@ -1242,9 +1584,17 @@ body {
   stroke-dasharray: 6 4;
 }
 
+.reserved-area {
+  cursor: pointer;
+}
+
 .reserved-area.is-selected .reserved-shape {
   fill: rgba(255, 170, 60, 0.22);
   stroke-dasharray: none;
+}
+
+.reserved-area.is-hovered .reserved-shape {
+  fill: rgba(255, 170, 60, 0.2);
 }
 
 .reserved-label {
@@ -1276,4 +1626,15 @@ body {
 
 .reserved-handles:not(.is-selected) {
   opacity: 0.45;
+  transition: opacity 0.12s;
+}
+
+/* Under the mouse: the move dot lights up to show it can be grabbed. */
+.reserved-handles.is-hovered {
+  opacity: 1;
+}
+
+.reserved-handles.is-hovered .reserved-move {
+  stroke: #fff;
+  stroke-width: 2;
 }

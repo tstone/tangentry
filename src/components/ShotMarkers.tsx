@@ -1,7 +1,8 @@
-import { For, Show, createSignal } from 'solid-js'
+import { For, Show, createSignal, onCleanup } from 'solid-js'
 import { playfield } from '../state/playfield'
 import {
   exitForHorseshoe,
+  feedChain,
   horseshoeCenter,
   linkShots,
   moveVia,
@@ -14,8 +15,10 @@ import {
   updateShot,
   type Shot,
 } from '../state/shots'
+import { shotAnalyses } from '../state/solutions'
+import { hoveredShot, setHoveredShot } from '../state/view'
 import type { Point } from '../geometry/flipper'
-import { startDrag } from './drag'
+import { clickUnlessDragged, startDrag } from './drag'
 
 // Display radius of the entrance and exit handles, in inches.
 const HANDLE_RADIUS = 0.3
@@ -135,7 +138,27 @@ export default function ShotMarkers() {
             )
           }
           return (
-            <g class="shot-markers" classList={{ 'is-selected': selectedId() === shot.id }}>
+            <g
+              class="shot-markers"
+              classList={{
+                'is-selected': selectedId() === shot.id,
+                // Shown while another lane's handle is dragged over it, to join to.
+                'is-link-target': linkTarget() === shot.id,
+              }}
+            >
+              {/* Across open playfield from the exit feeding this lane. */}
+              <Show when={feedChain(shot).at(-1)}>
+                {(from) => (
+                  <line
+                    class="shot-feed"
+                    x1={from().exit.x}
+                    y1={playfield.height - from().exit.y}
+                    x2={shot.entrance.x}
+                    y2={playfield.height - shot.entrance.y}
+                    vector-effect="non-scaling-stroke"
+                  />
+                )}
+              </Show>
               <line
                 class="shot-exit-direction"
                 x1={exit().x}
@@ -214,6 +237,61 @@ export default function ShotMarkers() {
               >
                 <title>{shot.name} entrance</title>
               </circle>
+            </g>
+          )
+        }}
+      </For>
+    </g>
+  )
+}
+
+/**
+ * Click targets over every unselected shot's lane. Hovering one brings up
+ * its entrance and lights its lane; clicking selects the shot. A press that
+ * turns into a drag pans the view as usual. Must be rendered inside the
+ * preview SVG, under the selected shot's handles.
+ */
+export function ShotPickers() {
+  // Keyed by shot, so a picker survives its lane being recomputed.
+  const unselected = () => shots.filter((s) => s.id !== selectedId())
+  return (
+    <g class="shot-pickers">
+      <For each={unselected()}>
+        {(shot) => {
+          const lane = () => shotAnalyses().find((a) => a.id === shot.id)?.lane
+          onCleanup(() => {
+            if (hoveredShot() === shot.id) setHoveredShot(null)
+          })
+          const press = (event: PointerEvent) => clickUnlessDragged(event, () => setSelectedId(shot.id))
+          return (
+            <g
+              class="shot-picker"
+              classList={{ 'is-hovered': hoveredShot() === shot.id, 'has-lane': !!lane() }}
+              onPointerEnter={() => setHoveredShot(shot.id)}
+              onPointerLeave={() => setHoveredShot((id) => (id === shot.id ? null : id))}
+              onPointerDown={press}
+            >
+              <title>{shot.name}: click to select</title>
+              {/* The lane's whole width picks it, out to the walls. */}
+              <Show when={lane()}>
+                {(l) => (
+                  <polyline
+                    class="shot-picker-lane"
+                    points={l()
+                      .center.filter((c) => c.s <= l().exitDistance)
+                      .map((c) => `${c.p.x},${c.p.y}`)
+                      .join(' ')}
+                    stroke-width={Math.max(shot.entranceWidth, shot.exitWidth)}
+                  />
+                )}
+              </Show>
+              <circle
+                class="shot-picker-entrance"
+                cx={shot.entrance.x}
+                cy={playfield.height - shot.entrance.y}
+                r={HANDLE_RADIUS}
+                vector-effect="non-scaling-stroke"
+              />
             </g>
           )
         }}

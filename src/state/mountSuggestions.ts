@@ -3,8 +3,8 @@ import { ball } from './ball'
 import { playfield } from './playfield'
 import { walls } from './walls'
 import { setMounts, newMount, type WallMount } from './shots'
-import { WALL_SIDES, contactWall, shotAnalyses } from './solutions'
-import { MAX_FLEX, flexPerSpeed, wallStiffness, type MountKind } from '../physics/wall'
+import { WALL_SIDES, contactWall, piecewiseStiffness, shotAnalyses } from './solutions'
+import { MAX_FLEX, flexPerSpeed, type MountKind } from '../physics/wall'
 import { ballMass } from '../physics/drive'
 import { normal } from '../geometry/lane'
 
@@ -39,16 +39,20 @@ export function suggestMounts(shotId: number) {
   const mass = ballMass(ball.diameter)
   // Walls of the other lanes, which can crowd out a spade bolt.
   const others = shotAnalyses().flatMap((a) => (a.id !== shotId && a.lane ? a.lane.walls.map((w) => w.points) : []))
-  // Hits on this lane's walls, from its own ball paths and from those of a
-  // joined lane that run on through it.
+  // Hits on this lane's walls, from its own ball paths and from those of
+  // joined or fed lanes that run through it.
   const hits = shotAnalyses()
-    .filter((a) => a.id === shotId || a.joined?.id === shotId)
+    .filter((a) => a.parts.some((p) => p.id === shotId))
     .flatMap((a) =>
       a.flippers.flatMap((f) =>
-        Object.values(f.states).flatMap((s) => (s?.lane?.bounces ?? []).map((hit) => ({ hit, at: contactWall(a, hit) }))),
+        Object.values(f.states).flatMap((s) =>
+          (s?.lane?.bounces ?? []).flatMap((hit) => {
+            const at = contactWall(a, hit)
+            return at?.id === shotId ? [{ hit, at }] : []
+          }),
+        ),
       ),
     )
-    .filter(({ at }) => at.id === shotId)
 
   const suggested = WALL_SIDES.map(({ side, offset }) => {
     const wall = lane.walls.find((w) => w.side === side)!
@@ -87,11 +91,17 @@ export function suggestMounts(shotId: number) {
       )
       return crowded ? 'spike' : 'spade'
     }
-    const ends = [nearest(Math.min(END_INSET, total / 2)), nearest(Math.max(total - END_INSET, total / 2))]
-    const placed: Placed[] = ends.map((index) => ({ kind: kindAt(index), index }))
+    // Each separate piece of wall, either side of an open span, is held at both ends.
+    const ends = lane.pieces.flatMap(([first, last]) => {
+      const from = wall.lengths[first]
+      const to = wall.lengths[last]
+      const middle = (from + to) / 2
+      return [nearest(Math.min(from + END_INSET, middle)), nearest(Math.max(to - END_INSET, middle))]
+    })
+    const placed: Placed[] = [...new Set(ends)].map((index) => ({ kind: kindAt(index), index }))
 
     while (placed.length < MAX_MOUNTS) {
-      const stiffness = wallStiffness(wall.points, placed, walls)
+      const stiffness = piecewiseStiffness(wall.points, placed, lane.pieces, walls)
       let worst = -1
       let worstFlex = MAX_FLEX
       stiffness.forEach((k, i) => {

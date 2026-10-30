@@ -61,17 +61,17 @@ export function areaCenter(area: ReservedArea): Entrance {
 
 export function addReserved(kind: ReservedKind) {
   const id = nextId++
-  const name = `Reserved ${id}`
+  const name = `Custom Mech ${id}`
   // Start in the middle of the playfield; the user will drag it into place.
   const c = { x: snap(playfield.width / 2), y: snap(playfield.height / 2) }
   setReserved(
     reserved.length,
     kind === 'circle'
-      ? { id, name, shootable: false, kind, center: c, radius: 2 }
+      ? { id, name, shootable: true, kind, center: c, radius: 2 }
       : {
           id,
           name,
-          shootable: false,
+          shootable: true,
           kind,
           points: [
             { x: c.x - 2, y: c.y - 1.5 },

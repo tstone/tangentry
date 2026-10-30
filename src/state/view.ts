@@ -23,7 +23,7 @@ export const LAYERS: { layer: Layer; label: string }[] = [
   { layer: 'safeTravel', label: 'Safe passage region' },
   { layer: 'paths', label: 'Ball path' },
   { layer: 'walls', label: 'Walls' },
-  { layer: 'reserved', label: 'Reserved regions' },
+  { layer: 'reserved', label: 'Custom mechs' },
 ]
 
 const [visible, setVisible] = createStore<Record<Layer, boolean>>({
@@ -43,6 +43,14 @@ export const isHovered = (approach: Approach, state: BallState) => {
   const hovered = hoveredPath()
   return hovered !== null && hovered.approach === approach && hovered.state === state
 }
+
+// An unselected shot under the mouse on the playfield, which a click would select.
+const [hoveredShot, setHoveredShot] = createSignal<number | null>(null)
+export { hoveredShot, setHoveredShot }
+
+// A reserved area under the mouse on the playfield, which a click would select.
+const [hoveredReserved, setHoveredReserved] = createSignal<number | null>(null)
+export { hoveredReserved, setHoveredReserved }
 
 /** Every speed along a solution's path, flipper to lane exit. */
 export const pathSpeeds = (s: Solution) => [...s.rideSpeeds, ...s.flightSpeeds, ...(s.lane?.speeds ?? [])]

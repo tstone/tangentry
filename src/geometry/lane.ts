@@ -270,7 +270,8 @@ export type WallContact = {
 // - ricochet: a hard hit, or one trip across to the other wall
 // - rattle: a very hard hit, or bouncing back and forth across the lane
 // - stalls: never makes it out of the exit
-export type LaneOutcome = 'smooth' | 'chatter' | 'ricochet' | 'rattle' | 'stalls'
+// - misses: flies across an open span and misses the walls on the far side
+export type LaneOutcome = 'smooth' | 'chatter' | 'ricochet' | 'rattle' | 'stalls' | 'misses'
 
 // Speed the ball bounces back off a wall (in/s) at which a hit reaches each
 // outcome. Hitting a rigid wall that returns 60% of the speed, at 150 in/s
@@ -295,7 +296,7 @@ export type LaneRun = {
   // Every bounce, in order. Gentler touches are the ball rolling along a wall.
   bounces: WallContact[]
   outcome: LaneOutcome
-  // Speed through the exit, in/s; null if it stalls.
+  // Speed through the exit, in/s; null if it stalls or misses.
   exitSpeed: number | null
 }
 
@@ -317,6 +318,9 @@ export type WallResponse = (side: number, index: number) => { restitution: numbe
  * as `wall` gives. Spin and wall friction are ignored. Returns null if the
  * lane is too narrow for the ball.
  *
+ * Where `open` marks a sample, the lane has no walls beside it: the ball
+ * runs free there, and must be between the walls where they start again.
+ *
  * Each step the ball is placed relative to the center line. If it has gone
  * further to either side than the ball's center can reach, it has hit that
  * wall: it's moved back to the wall and bounces or rolls along it. Checking
@@ -331,6 +335,7 @@ export function runLane(
   velocity: Point,
   gravity: number,
   wall: WallResponse,
+  open: boolean[] = [],
 ): LaneRun | null {
   if (Math.min(...w) / 2 <= ballRadius || curve.length < 2) return null
 
@@ -381,13 +386,14 @@ export function runLane(
   const bounces: WallContact[] = []
   let firstTouch: WallContact | null = null
 
-  const finish = (exitSpeed: number | null): LaneRun => {
+  const finish = (exitSpeed: number | null, missed = false): LaneRun => {
     // Bounces that switch walls are trips across the lane.
     let crossings = 0
     for (let i = 1; i < bounces.length; i++) if (bounces[i].side !== bounces[i - 1].side) crossings++
     const hardest = Math.max(0, ...bounces.map((b) => b.reboundSpeed))
-    const outcome: LaneOutcome =
-      exitSpeed === null
+    const outcome: LaneOutcome = missed
+      ? 'misses'
+      : exitSpeed === null
         ? 'stalls'
         : crossings >= 2 || hardest >= HIT_SEVERITY.rattle
           ? 'rattle'
@@ -398,6 +404,9 @@ export function runLane(
               : 'smooth'
     return { path, speeds, firstTouch, bounces, outcome, exitSpeed }
   }
+
+  // Whether the ball was beside an open span at the last step.
+  let wasOpen = false
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const speed = Math.hypot(v.x, v.y)
@@ -420,6 +429,20 @@ export function runLane(
     }
 
     const reach = here.halfWidth - ballRadius
+    // A stretch is open if either end of it is: no wall runs between them.
+    if (open[here.i] || open[here.i + 1]) {
+      wasOpen = true
+      record()
+      continue
+    }
+    // Back between walls after an open span: with its center outside them,
+    // the ball misses the lane. Overlapping the end of a wall, it's turned
+    // back in as if it had hit the wall.
+    if (wasOpen && Math.abs(here.lateral) > here.halfWidth) {
+      record()
+      return finish(null, true)
+    }
+    wasOpen = false
     if (Math.abs(here.lateral) > reach) {
       const side = Math.sign(here.lateral)
       // Points from the wall back into the lane.

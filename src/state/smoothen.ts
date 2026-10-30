@@ -13,7 +13,7 @@ import {
   updateShot,
   type Shot,
 } from './shots'
-import { analyze, joinedLane, solveFlippers, type FlipperSolutions, type ShotAnalysis } from './solutions'
+import { analyze, joinedLane, shotFeed, solveFlippers, type FlipperSolutions, type ShotAnalysis } from './solutions'
 import { MAX_FLEX } from '../physics/wall'
 import type { CurveSample, LaneOutcome, LaneRun } from '../geometry/lane'
 
@@ -36,6 +36,7 @@ const OUTCOME_COST: Record<LaneOutcome, number> = {
   ricochet: 200,
   rattle: 300,
   stalls: 400,
+  misses: 400,
 }
 // Cost per in/s the ball bounces off a wall, and per inch a hit flexes the
 // wall past MAX_FLEX.
@@ -150,12 +151,14 @@ export async function smoothen(
     mounts: { left: live.mounts.left.map((m) => ({ ...m })), right: live.mounts.right.map((m) => ({ ...m })) },
     horseshoe: { ...live.horseshoe },
   }
-  const solved: FlipperSolutions[] = solveFlippers(shot)
-  // A joined lane is left as it is; the ball still runs on through it.
+  // Lanes feeding it and any joined lane are left as they are; the ball
+  // still runs through them.
+  const feed = shotFeed(live)
+  const solved: FlipperSolutions[] = feed?.solved ?? solveFlippers(shot)
   const joined = joinedLane(shotId)
   const evaluate = (params: Params) => {
     const candidate = { ...shot, ...params }
-    const analysis = analyze(candidate, solved, joined)
+    const analysis = analyze(candidate, solved, joined, feed?.feeders)
     return { cost: roughness(candidate, analysis), analysis }
   }
 

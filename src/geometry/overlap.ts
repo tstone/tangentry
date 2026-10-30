@@ -23,7 +23,8 @@ function segmentsCross(a: Point, b: Point, c: Point, d: Point) {
   return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0
 }
 
-function segmentDistance(p: Point, a: Point, b: Point) {
+/** Distance from `p` to the nearest point of the segment from `a` to `b`. */
+export function segmentDistance(p: Point, a: Point, b: Point) {
   const dx = b.x - a.x
   const dy = b.y - a.y
   const span = dx * dx + dy * dy
