@@ -1,4 +1,4 @@
-import { For, Show, onCleanup } from 'solid-js'
+import { For, Show, createSignal, onCleanup } from 'solid-js'
 import NumberField from './NumberField'
 import SelectField from './SelectField'
 import SliderField from './SliderField'
@@ -37,6 +37,7 @@ import type { Departure } from '../physics/shot'
 import { MAX_FLEX, MOUNT_KINDS, type MountKind } from '../physics/wall'
 import { suggestMounts } from '../state/mountSuggestions'
 import { insertVia } from '../state/viaPoints'
+import { smoothen, type SmoothenResult } from '../state/smoothen'
 import { formatDegrees, formatInches } from './Dimensions'
 
 const DEPARTURE_LABELS: Record<Departure, string> = {
@@ -358,6 +359,38 @@ function WallMounts(props: { shot: Shot; side: WallSide; label: string }) {
   )
 }
 
+const paths = (n: number) => `${n} ball path${n === 1 ? '' : 's'}`
+
+function Smoothen(props: { shot: Shot }) {
+  const [result, setResult] = createSignal<SmoothenResult | null>(null)
+  return (
+    <>
+      <button
+        type="button"
+        class="wall-mount-add"
+        title="Adjust the entrance offset, lead-in, weights, funnel and bend points so the ball gets through more cleanly"
+        onClick={() => setResult(smoothen(props.shot.id))}
+      >
+        Smoothen
+      </button>
+      <p class="field-note">
+        <Show
+          when={result()}
+          fallback='Tries entrance offset, lead-in, weights, funnel length and moving bend points up to 2" to cut down wall hits. Leaves the ends, widths and mounts alone.'
+        >
+          {(r) => (
+            <Show when={r().changed} fallback="Couldn't find anything smoother.">
+              <Show when={r().before !== r().after} fallback={`Hits softened; ${paths(r().after)} still not smooth.`}>
+                Rough {paths(r().before)} down to {r().after}.
+              </Show>
+            </Show>
+          )}
+        </Show>
+      </p>
+    </>
+  )
+}
+
 function ShotCard(props: { shot: Shot }) {
   const selected = () => selectedId() === props.shot.id
   return (
@@ -493,6 +526,7 @@ function ShotCard(props: { shot: Shot }) {
           onChange={(exitWeight) => updateShot(props.shot.id, { exitWeight })}
         />
         <LaneNotes shot={props.shot} />
+        <Smoothen shot={props.shot} />
 
         <details class="wall-mounts">
           <summary class="sidebar-heading">

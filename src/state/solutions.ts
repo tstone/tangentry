@@ -81,7 +81,7 @@ export type FlipperSolutions = {
   states: Record<BallState, Solution | null>
 }
 
-function solveFlippers(shot: Shot): FlipperSolutions[] {
+export function solveFlippers(shot: Shot): FlipperSolutions[] {
   const layout = computeLayout()
   const slope = GRAVITY * Math.sin(toRadians(playfield.angle))
   const ballRadius = ball.diameter / 2
@@ -200,9 +200,12 @@ const solutionFor = (flippers: FlipperSolutions[], alignment: LaneAlignment) => 
 
 const scaleNormal = (t: Point, side: number): Point => ({ x: normal(t).x * side, y: normal(t).y * side })
 
-function analyze(shot: Shot): ShotAnalysis {
-  const solved = solveFlippers(shot)
-
+/**
+ * Solve a shot's flippers and run each ball path through its lane. The
+ * flipper solutions depend only on the entrance, so callers trying many lane
+ * shapes for one entrance can solve them once and pass them in.
+ */
+export function analyze(shot: Shot, solved = solveFlippers(shot)): ShotAnalysis {
   // Use the shot's chosen solution, or the first one that exists.
   const alignedTo = [shot.alignment, ...ALIGNMENT_ORDER].find((a) => solutionFor(solved, a))
   if (!alignedTo) return { id: shot.id, flippers: solved, lane: null }
