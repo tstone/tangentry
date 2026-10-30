@@ -21,6 +21,9 @@ import ShotMarkers, { ShotPickers } from './ShotMarkers'
 import ShotPaths from './ShotPaths'
 import SketchPalette, { SketchStrokes } from './Sketch'
 import { activeColor, beginStroke, extendStroke, fitting, sketching } from '../state/sketch'
+import { unfocus } from '../state/focus'
+import { removeFocused } from '../state/removeFocused'
+import { clickUnlessDragged, isClaimed } from './drag'
 
 // Display radius of the flipper pivot marker, in inches.
 const PIVOT_RADIUS = 0.1
@@ -51,6 +54,21 @@ export default function Preview() {
     onCleanup(() => svg.removeEventListener('wheel', wheel))
   })
 
+  // Escape lets go of the item in focus and Delete removes it, unless a field
+  // or dialog wants the key.
+  onMount(() => {
+    const keydown = (e: KeyboardEvent) => {
+      if ((e.key !== 'Escape' && e.key !== 'Delete') || e.defaultPrevented) return
+      const target = e.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable]')) return
+      if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return
+      if (e.key === 'Escape') unfocus()
+      else removeFocused()
+    }
+    window.addEventListener('keydown', keydown)
+    onCleanup(() => window.removeEventListener('keydown', keydown))
+  })
+
   // With a sketch color in hand, dragging draws in it.
   const startStroke = (e: PointerEvent, color: number) => {
     e.preventDefault()
@@ -77,6 +95,8 @@ export default function Preview() {
     }
     const ctm = svg.getScreenCTM()
     if (!ctm) return
+    // A click on empty space lets go of the item in focus.
+    if (!isClaimed(e)) clickUnlessDragged(e, () => unfocus())
     e.preventDefault()
     svg.setPointerCapture(e.pointerId)
     setPanning(true)

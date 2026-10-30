@@ -130,7 +130,13 @@ function ShotResults(props: { shot: Shot }) {
                   <div class="shot-state-label">{stateLabel(flipper.key, state)}</div>
                   <Show
                     when={flipper.states[state]}
-                    fallback={<p class="shot-solution-none">No fire point reaches this entrance.</p>}
+                    fallback={
+                      <p class="shot-solution-none">
+                        <Show when={flipper.blocked[state]} fallback="No fire point reaches this entrance.">
+                          {(by) => <>Blocked by {by()}.</>}
+                        </Show>
+                      </p>
+                    }
                   >
                     {(solution) => <SolutionDetails solution={solution()} />}
                   </Show>

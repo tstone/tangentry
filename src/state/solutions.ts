@@ -6,6 +6,7 @@ import { ballMass, flipperInertia, flipperProfile, type FlipperProfile } from '.
 import { inlanes } from './inlanes'
 import { ball } from './ball'
 import { walls } from './walls'
+import { reservedBlocking } from './reserved'
 import {
   feedChain,
   selectedId,
@@ -110,6 +111,9 @@ export type FlipperSolutions = {
   // Only the ways the ball can arrive on this flipper: an extra flipper's
   // ball only rolls in, along its axis.
   states: Partial<Record<BallState, Solution | null>>
+  // Name of the custom mech in the way of each ball path that would
+  // otherwise reach the entrance; that path's state is null.
+  blocked: Partial<Record<BallState, string>>
 }
 
 export type FlipperSolver = ReturnType<typeof solverFor>
@@ -219,8 +223,17 @@ function solveWith(
   to: Entrance,
 ): FlipperSolutions {
   const { side, pivot, shape } = solver
-  const states = Object.fromEntries(solver.states.map((state) => [state, solver.solve(to, state)]))
-  return { key, label, approach, side, pivot, shape, states }
+  const blocked: FlipperSolutions['blocked'] = {}
+  const states = Object.fromEntries(
+    solver.states.map((state) => {
+      const s = solver.solve(to, state)
+      // The ball can't fly through a mech on its way to the entrance.
+      const by = s && reservedBlocking(s.flight, ball.diameter / 2)
+      if (by) blocked[state] = by.name
+      return [state, by ? null : s]
+    }),
+  )
+  return { key, label, approach, side, pivot, shape, states, blocked }
 }
 
 /** The main flipper a cross-field shot to `entrance` comes off: entrances left of center cross from the right. */

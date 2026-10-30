@@ -25,6 +25,8 @@ import {
   addExtraFlipper,
   extraFlippers,
   removeExtraFlipper,
+  selectedFlipperId,
+  setSelectedFlipperId,
   updateExtraFlipper,
   type ExtraFlipper,
 } from '../state/extraFlippers'
@@ -169,14 +171,20 @@ const SIDE_OPTIONS: { label: string; value: ExtraFlipper['side'] }[] = [
 function ExtraFlipperCard(props: { flipper: ExtraFlipper }) {
   const f = () => props.flipper
   const update = (changes: Partial<Omit<ExtraFlipper, 'id'>>) => updateExtraFlipper(f().id, changes)
+  const selected = () => selectedFlipperId() === f().id
   return (
     <div
       class="wall-mount extra-flipper-card"
-      classList={{ 'is-hovered': hoveredFlipper() === f().id }}
+      classList={{ 'is-hovered': hoveredFlipper() === f().id, 'is-selected': selected() }}
       {...flipperHoverHandlers(f().id)}
     >
       <div class="wall-mount-header">
-        <CardName name={f().name} selected onSelect={() => {}} onRename={(name) => update({ name })} />
+        <CardName
+          name={f().name}
+          selected={selected()}
+          onSelect={() => setSelectedFlipperId(f().id)}
+          onRename={(name) => update({ name })}
+        />
         <button
           type="button"
           class="icon-button"

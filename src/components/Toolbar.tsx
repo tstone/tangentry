@@ -1,16 +1,23 @@
-import { Show } from 'solid-js'
-import { addShot, removeShot, selectedShot, shots } from '../state/shots'
-import { addReserved, reserved } from '../state/reserved'
+import { Match, Show, Switch } from 'solid-js'
+import { addShot, selectedShot, shots } from '../state/shots'
+import { addReserved, reserved, selectedReservedId } from '../state/reserved'
+import { extraFlippers, selectedFlipperId } from '../state/extraFlippers'
 import { insertVia } from '../state/viaPoints'
 import { sketching, startSketch } from '../state/sketch'
 import { runSmoothen, smoothing } from '../state/smoothenRun'
+import { busy, removeFocused } from '../state/removeFocused'
 import { log } from '../state/log'
 import ResetDialog from './ResetDialog'
 
-/** Tools down the left of the preview, under the zoom. Bend point, Smoothen and Remove act on the selected shot. */
+/**
+ * Tools down the left of the preview, under the zoom. The middle group acts on
+ * the item in focus and changes with it: a shot, custom mech or extra flipper.
+ */
 export default function Toolbar() {
-  const busy = () => sketching() || smoothing() !== null
-  const shot = () => (busy() ? undefined : selectedShot())
+  // While busy, the focused item's tools stay showing but disabled.
+  const shot = selectedShot
+  const mech = () => reserved.find((a) => a.id === selectedReservedId())
+  const flipper = () => extraFlippers.find((f) => f.id === selectedFlipperId())
 
   const add = () => {
     const id = addShot()
@@ -22,15 +29,9 @@ export default function Toolbar() {
   }
   const addBend = () => {
     const s = shot()
-    if (!s) return
+    if (!s || busy()) return
     insertVia(s.id)
     log(`Added a bend point to ${s.name}.`)
-  }
-  const remove = () => {
-    const s = shot()
-    if (!s) return
-    log(`Removed ${s.name}.`)
-    removeShot(s.id)
   }
 
   return (
@@ -79,68 +80,111 @@ export default function Toolbar() {
         Sketch shot
       </button>
 
-      <div class="tool-strip-divider" role="separator" />
-
-      <button
-        type="button"
-        class="preview-zoom-button toolbar-icon-button"
-        title={
-          shot()
-            ? `Add a bend point to ${shot()!.name}, midway along the longest stretch of its lane`
-            : 'Add bend point: select a shot first'
-        }
-        disabled={!shot()}
-        onClick={addBend}
-      >
-        {/* A curve bending through a point. */}
-        <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M1.5 13.5C4.5 13.5 5.5 8 8 8s3.5-5.5 6.5-5.5" />
-          <circle class="toolbar-icon-node" cx="8" cy="8" r="1.75" />
-        </svg>
-        Add bend point
-      </button>
-      <button
-        type="button"
-        class="preview-zoom-button toolbar-icon-button"
-        aria-busy={smoothing() !== null}
-        title={
-          smoothing()
-            ? `Smoothing… tried ${smoothing()!.tried} lane shapes so far`
-            : shot()
-              ? `Smoothen ${shot()!.name}: adjust entrance offset, lead-in, weights, funnel and bend points so the ball gets through more cleanly`
-              : 'Smoothen: select a shot first'
-        }
-        disabled={!shot()}
-        onClick={() => shot() && runSmoothen(shot()!.id)}
-      >
-        <Show
-          when={smoothing()}
-          fallback={
-            // A wand with sparkles.
-            <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M2.5 13.5 10 6M8.75 4.75l2.5 2.5" />
-              <path d="M12.5 1.5v3M11 3h3M14 8v2.5M12.75 9.25h2.5M5.5 2v2M4.5 3h2" />
-            </svg>
-          }
-        >
-          <span class="spinner" aria-hidden="true" />
-        </Show>
-        {smoothing() ? 'Smoothing…' : 'Smoothen'}
-      </button>
-      <button
-        type="button"
-        class="preview-zoom-button toolbar-icon-button"
-        title={shot() ? `Remove ${shot()!.name}` : 'Remove shot: select a shot first'}
-        disabled={!shot()}
-        onClick={remove}
-      >
-        {/* A lane with a minus. */}
-        <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M2.5 13.5C2.5 8 6 4 11.5 3" />
-          <path d="M9 11h5" />
-        </svg>
-        Remove shot
-      </button>
+      <Switch>
+        <Match when={shot()}>
+          {(s) => (
+            <>
+              <div class="tool-strip-divider" role="separator" />
+              <button
+                type="button"
+                class="preview-zoom-button toolbar-icon-button"
+                title={`Add a bend point to ${s().name}, midway along the longest stretch of its lane`}
+                disabled={busy()}
+                onClick={addBend}
+              >
+                {/* A curve bending through a point. */}
+                <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M1.5 13.5C4.5 13.5 5.5 8 8 8s3.5-5.5 6.5-5.5" />
+                  <circle class="toolbar-icon-node" cx="8" cy="8" r="1.75" />
+                </svg>
+                Add bend point
+              </button>
+              <button
+                type="button"
+                class="preview-zoom-button toolbar-icon-button"
+                aria-busy={smoothing() !== null}
+                title={
+                  smoothing()
+                    ? `Smoothing… tried ${smoothing()!.tried} lane shapes so far`
+                    : `Smoothen ${s().name}: adjust entrance offset, lead-in, weights, funnel and bend points so the ball gets through more cleanly`
+                }
+                disabled={busy()}
+                onClick={() => runSmoothen(s().id)}
+              >
+                <Show
+                  when={smoothing()}
+                  fallback={
+                    // A wand with sparkles.
+                    <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M2.5 13.5 10 6M8.75 4.75l2.5 2.5" />
+                      <path d="M12.5 1.5v3M11 3h3M14 8v2.5M12.75 9.25h2.5M5.5 2v2M4.5 3h2" />
+                    </svg>
+                  }
+                >
+                  <span class="spinner" aria-hidden="true" />
+                </Show>
+                {smoothing() ? 'Smoothing…' : 'Smoothen'}
+              </button>
+              <button
+                type="button"
+                class="preview-zoom-button toolbar-icon-button"
+                title={`Remove ${s().name} (Delete)`}
+                disabled={busy()}
+                onClick={removeFocused}
+              >
+                {/* A lane with a minus. */}
+                <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M2.5 13.5C2.5 8 6 4 11.5 3" />
+                  <path d="M9 11h5" />
+                </svg>
+                Remove shot
+              </button>
+            </>
+          )}
+        </Match>
+        <Match when={mech()}>
+          {(m) => (
+            <>
+              <div class="tool-strip-divider" role="separator" />
+              <button
+                type="button"
+                class="preview-zoom-button toolbar-icon-button"
+                title={`Remove ${m().name} (Delete)`}
+                disabled={busy()}
+                onClick={removeFocused}
+              >
+                {/* A dashed circle with a minus. */}
+                <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <circle cx="8" cy="8" r="5.5" stroke-dasharray="3 2" />
+                  <path d="M5.5 8h5" />
+                </svg>
+                Remove mech
+              </button>
+            </>
+          )}
+        </Match>
+        <Match when={flipper()}>
+          {(f) => (
+            <>
+              <div class="tool-strip-divider" role="separator" />
+              <button
+                type="button"
+                class="preview-zoom-button toolbar-icon-button"
+                title={`Remove ${f().name} (Delete)`}
+                disabled={busy()}
+                onClick={removeFocused}
+              >
+                {/* A flipper with a minus. */}
+                <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M2 5.5a2 2 0 0 1 2.4-2l8 2.2a1 1 0 0 1 0 1.9l-8 2.2A2 2 0 0 1 2 7.8Z" />
+                  <path d="M9 12.5h5" />
+                </svg>
+                Remove flipper
+              </button>
+            </>
+          )}
+        </Match>
+      </Switch>
 
       <div class="tool-strip-divider" role="separator" />
 

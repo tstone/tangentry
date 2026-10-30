@@ -1,9 +1,10 @@
-import { batch, createSignal } from 'solid-js'
+import { batch } from 'solid-js'
 import { createStore, produce } from 'solid-js/store'
 import { playfield } from './playfield'
+import { focusOn, focusedId, unfocus } from './focus'
 import type { Entrance } from './shots'
 import type { Point } from '../geometry/flipper'
-import { circleOverlapsPolygon, polygonsOverlap } from '../geometry/overlap'
+import { circleOverlapsPolygon, pathTouchesCircle, pathTouchesPolygon, polygonsOverlap } from '../geometry/overlap'
 
 // Space set aside on the playfield for a mech, toy or other feature, so
 // lanes can be laid out around it. All dimensions are in inches, positions
@@ -44,7 +45,9 @@ const snap = (value: number) => Math.round(value / SNAP) * SNAP
 
 const [reserved, setReserved] = createStore<ReservedArea[]>([])
 
-const [selectedReservedId, setSelectedReservedId] = createSignal<number | null>(null)
+// The custom mech in focus.
+const selectedReservedId = () => focusedId('mech')
+const setSelectedReservedId = (id: number) => focusOn('mech', id)
 
 let nextId = 1
 let nextPointId = 1
@@ -85,11 +88,8 @@ export function addReserved(kind: ReservedKind) {
 }
 
 export function removeReserved(id: number) {
-  const index = reserved.findIndex((a) => a.id === id)
   setReserved((list) => list.filter((a) => a.id !== id))
-  if (selectedReservedId() === id) {
-    setSelectedReservedId(reserved[Math.min(index, reserved.length - 1)]?.id ?? null)
-  }
+  unfocus('mech', id)
 }
 
 // Change one area in place.
@@ -173,6 +173,21 @@ export function reservedCrossedBy(outline: Point[]): ReservedArea[] {
   )
 }
 
+/**
+ * The first reserved area a ball of `radius` rolling along `path` runs
+ * into, or null. The path is in SVG coordinates.
+ */
+export function reservedBlocking(path: Point[], radius: number): ReservedArea | null {
+  const svg = (p: Entrance) => ({ x: p.x, y: playfield.height - p.y })
+  return (
+    reserved.find((area) =>
+      area.kind === 'circle'
+        ? pathTouchesCircle(path, radius, svg(area.center), area.radius)
+        : pathTouchesPolygon(path, radius, area.points.map(svg)),
+    ) ?? null
+  )
+}
+
 /** Swap in a whole new set of areas, as from an imported file. */
 export function replaceReserved(list: ReservedArea[]) {
   const maxId = (ids: number[]) => ids.reduce((max, id) => Math.max(max, id), 0)
@@ -181,7 +196,7 @@ export function replaceReserved(list: ReservedArea[]) {
   nextPointId = maxId(list.flatMap((a) => (a.kind === 'polygon' ? a.points.map((p) => p.id) : []))) + 1
   batch(() => {
     setReserved(list)
-    setSelectedReservedId(null)
+    unfocus('mech')
   })
 }
 

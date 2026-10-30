@@ -1,6 +1,7 @@
-import { batch, createSignal } from 'solid-js'
+import { batch } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { playfield } from './playfield'
+import { focusOn, focusedId, unfocus } from './focus'
 import type { Continuity } from '../geometry/lane'
 import type { MountKind } from '../physics/wall'
 
@@ -116,20 +117,14 @@ export type ViaPoint = Entrance & { id: number }
 
 const [shots, setShots] = createStore<Shot[]>([])
 
-// The shot whose ball paths are shown on the playfield.
-const [selectedId, setSelected] = createSignal<number | null>(null)
+// The shot in focus, whose ball paths are shown on the playfield.
+export const selectedId = () => focusedId('shot')
 
-// The shot last picked out by the user, as by clicking or adding it. Not
-// changed when the selection only moves on from a removed or replaced shot.
-const [pickedId, setPickedId] = createSignal<number | null>(null, { equals: false })
-
-/** Select a shot the user picked out. */
+/** Focus a shot the user picked out, or let go of the focused shot. */
 export function setSelectedId(id: number | null) {
-  if (id !== null && id !== selectedId()) setPickedId(id)
-  setSelected(id)
+  if (id === null) unfocus('shot')
+  else focusOn('shot', id)
 }
-
-export { pickedId }
 
 export const selectedShot = () => shots.find((shot) => shot.id === selectedId())
 
@@ -206,15 +201,11 @@ addShot({
 })
 
 export function removeShot(id: number) {
-  const index = shots.findIndex((shot) => shot.id === id)
   unlinkShot(id)
   // A shot it fed is shot from the flippers again.
   stopFeeding(id)
   setShots((list) => list.filter((shot) => shot.id !== id))
-  if (selectedId() === id) {
-    // Select the neighbor that slid into its place, or the new last shot.
-    setSelected(shots[Math.min(index, shots.length - 1)]?.id ?? null)
-  }
+  unfocus('shot', id)
 }
 
 export function renameShot(id: number, name: string) {
@@ -435,8 +426,9 @@ export function replaceShots(list: Shot[]) {
   nextMountId = maxId(list.flatMap((s) => [...s.mounts.left, ...s.mounts.right].map((m) => m.id))) + 1
   batch(() => {
     setShots(list)
-    setSelected(list[0]?.id ?? null)
+    if (list[0]) focusOn('shot', list[0].id)
+    else unfocus('shot')
   })
 }
 
-export { shots, selectedId }
+export { shots }

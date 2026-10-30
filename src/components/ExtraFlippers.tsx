@@ -1,5 +1,11 @@
 import { For, onCleanup } from 'solid-js'
-import { extraFlippers, moveExtraFlipper, type ExtraFlipper } from '../state/extraFlippers'
+import {
+  extraFlippers,
+  moveExtraFlipper,
+  selectedFlipperId,
+  setSelectedFlipperId,
+  type ExtraFlipper,
+} from '../state/extraFlippers'
 import { flipperShape } from '../state/flippers'
 import { extraFlipperLayout } from '../state/layout'
 import { hoveredFlipper, setHoveredFlipper } from '../state/view'
@@ -21,7 +27,13 @@ function Body(props: { flipper: ExtraFlipper }) {
   const shape = () => flipperShape(stock())
   const layout = () => extraFlipperLayout(props.flipper)
   return (
-    <g class="extra-flipper" classList={{ 'is-hovered': hoveredFlipper() === props.flipper.id }}>
+    <g
+      class="extra-flipper"
+      classList={{
+        'is-hovered': hoveredFlipper() === props.flipper.id,
+        'is-selected': selectedFlipperId() === props.flipper.id,
+      }}
+    >
       <path
         class="flipper"
         d={flipperPath(layout().pivot, shape().baseRadius, shape().tipRadius, shape().length, layout().angle)}
@@ -61,15 +73,16 @@ export function ExtraFlipperHandles() {
           const grab = (event: PointerEvent) => {
             const start = { ...f.pivot }
             let from: { x: number; y: number } | null = null
-            startDrag(event, (p) => {
+            const started = startDrag(event, (p) => {
               from ??= p
               moveExtraFlipper(f.id, { x: start.x + p.x - from.x, y: start.y + p.y - from.y })
             })
+            if (started) setSelectedFlipperId(f.id)
           }
           return (
             <circle
               class="extra-flipper-handle"
-              classList={{ 'is-hovered': hoveredFlipper() === f.id }}
+              classList={{ 'is-hovered': hoveredFlipper() === f.id, 'is-selected': selectedFlipperId() === f.id }}
               cx={pivot().x}
               cy={pivot().y}
               r={PIVOT_RADIUS}

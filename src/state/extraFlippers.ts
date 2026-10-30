@@ -1,6 +1,7 @@
 import { batch } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { playfield } from './playfield'
+import { focusOn, focusedId, unfocus } from './focus'
 import { shots, updateShot, type Entrance, type FlipperKey } from './shots'
 import type { FlipperProfileId } from '../physics/drive'
 
@@ -32,6 +33,10 @@ const snap = (value: number) => Math.round(value / SNAP) * SNAP
 
 const [extraFlippers, setExtraFlippers] = createStore<ExtraFlipper[]>([])
 
+// The extra flipper in focus.
+export const selectedFlipperId = () => focusedId('flipper')
+export const setSelectedFlipperId = (id: number) => focusOn('flipper', id)
+
 let nextId = 1
 
 /** How an extra flipper's ball paths and lane alignments are told apart from the main pair's. */
@@ -49,6 +54,7 @@ export function addExtraFlipper() {
     restAngle: 30,
     entranceSpeed: DEFAULT_ENTRANCE_SPEED,
   })
+  setSelectedFlipperId(id)
 }
 
 /** Shots made off a flipper that's gone go back to the automatic choice. */
@@ -65,6 +71,7 @@ export function removeExtraFlipper(id: number) {
   batch(() => {
     setExtraFlippers((list) => list.filter((f) => f.id !== id))
     forgetMissingAlignments()
+    unfocus('flipper', id)
   })
 }
 
@@ -88,6 +95,7 @@ export function replaceExtraFlippers(list: ExtraFlipper[]) {
   batch(() => {
     setExtraFlippers(list)
     forgetMissingAlignments()
+    unfocus('flipper')
   })
 }
 

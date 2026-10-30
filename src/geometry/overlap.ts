@@ -52,6 +52,29 @@ export function polygonsOverlap(a: Point[], b: Point[]) {
   return insidePolygon(a[0], b) || insidePolygon(b[0], a)
 }
 
+/** Distance between the segments from `a` to `b` and from `c` to `d`; 0 where they cross. */
+function segmentsDistance(a: Point, b: Point, c: Point, d: Point) {
+  if (segmentsCross(a, b, c, d)) return 0
+  return Math.min(segmentDistance(a, c, d), segmentDistance(b, c, d), segmentDistance(c, a, b), segmentDistance(d, a, b))
+}
+
+/** Whether a ball of `radius` rolling along `path` touches the polygon. */
+export function pathTouchesPolygon(path: Point[], radius: number, polygon: Point[]) {
+  if (polygon.length < 3 || path.length === 0) return false
+  if (insidePolygon(path[0], polygon)) return true
+  const polygonEdges = edges(polygon)
+  return path
+    .slice(1)
+    .some((q, i) => polygonEdges.some(([r, s]) => segmentsDistance(path[i], q, r, s) < radius))
+}
+
+/** Whether a ball of `radius` rolling along `path` touches the circle. */
+export function pathTouchesCircle(path: Point[], radius: number, center: Point, circleRadius: number) {
+  const reach = radius + circleRadius
+  if (path.length === 1) return Math.hypot(path[0].x - center.x, path[0].y - center.y) < reach
+  return path.slice(1).some((q, i) => segmentDistance(center, path[i], q) < reach)
+}
+
 /** Whether a circle and a polygon share any area. */
 export function circleOverlapsPolygon(center: Point, radius: number, polygon: Point[]) {
   if (polygon.length < 3) return false

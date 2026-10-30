@@ -35,12 +35,19 @@ export function startDrag(event: PointerEvent, onMove: (p: Point) => void, onEnd
 // A press that moves less than this before it's let go is a click, pixels.
 const CLICK_SLOP = 4
 
+// Presses something on the playfield has already taken as a click.
+const claimed = new WeakSet<PointerEvent>()
+
+/** Whether a press was already taken as a click by something under the pointer. */
+export const isClaimed = (event: PointerEvent) => claimed.has(event)
+
 /**
  * Call `onClick` if a press is let go about where it started. A press that
  * turns into a drag is left to pan the view as usual.
  */
 export function clickUnlessDragged(event: PointerEvent, onClick: () => void) {
   if (event.button !== 0) return
+  claimed.add(event)
   const from = { x: event.clientX, y: event.clientY }
   const release = (up: PointerEvent) => {
     window.removeEventListener('pointerup', release)
