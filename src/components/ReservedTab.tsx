@@ -14,6 +14,7 @@ import {
   selectedReservedId,
   setCircle,
   setSelectedReservedId,
+  setShootable,
   type ReservedArea,
   type ReservedCircle,
   type ReservedPolygon,
@@ -139,6 +140,17 @@ function ReservedCard(props: { area: ReservedArea }) {
         </button>
       </div>
       <Show when={selected()}>
+        <label class="checkbox-field">
+          <input
+            type="checkbox"
+            checked={props.area.shootable}
+            onChange={(e) => setShootable(props.area.id, e.currentTarget.checked)}
+          />
+          Shootable
+        </label>
+        <Show when={props.area.shootable}>
+          <p class="field-note">Shades the space the ball needs clear to reach it from either flipper.</p>
+        </Show>
         <Switch>
           <Match when={props.area.kind === 'circle' && props.area}>{(area) => <CircleFields area={area()} />}</Match>
           <Match when={props.area.kind === 'polygon' && props.area}>{(area) => <PolygonFields area={area()} />}</Match>

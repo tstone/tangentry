@@ -1,4 +1,5 @@
 import { createMemo, createRoot, createSignal } from 'solid-js'
+import { createStore } from 'solid-js/store'
 import { selectedSolutions, type Approach, type BallState, type Solution } from './solutions'
 
 // What the shot paths are colored by:
@@ -14,6 +15,25 @@ export const PATH_COLORINGS: { label: string; value: PathColoring }[] = [
 ]
 
 const [pathColoring, setPathColoring] = createSignal<PathColoring>('smoothness')
+
+// Things drawn on the preview that can be hidden.
+export type Layer = 'safeTravel' | 'paths' | 'walls' | 'reserved'
+
+export const LAYERS: { layer: Layer; label: string }[] = [
+  { layer: 'safeTravel', label: 'Safe passage region' },
+  { layer: 'paths', label: 'Ball path' },
+  { layer: 'walls', label: 'Walls' },
+  { layer: 'reserved', label: 'Reserved regions' },
+]
+
+const [visible, setVisible] = createStore<Record<Layer, boolean>>({
+  safeTravel: true,
+  paths: true,
+  walls: true,
+  reserved: true,
+})
+
+export const showLayer = (layer: Layer, shown: boolean) => setVisible(layer, shown)
 
 // The path hovered in the shot list, which is called out on the playfield.
 export type PathKey = { approach: Approach; state: BallState }
@@ -78,4 +98,4 @@ export function pathColor(state: BallState, s: Solution | null | undefined) {
   }
 }
 
-export { pathColoring, setPathColoring, hoveredPath, setHoveredPath }
+export { visible, pathColoring, setPathColoring, hoveredPath, setHoveredPath }

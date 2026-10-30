@@ -356,10 +356,17 @@ body {
   cursor: grabbing;
 }
 
-.path-coloring {
+.view-controls {
   position: absolute;
   top: 1rem;
   right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.path-coloring,
+.view-layers {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -368,6 +375,54 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel);
+}
+
+/* Headings of the panels over the preview. */
+.path-coloring .field-label,
+.view-layers .field-label {
+  font-weight: 600;
+}
+
+.switch-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.switch-field-control {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 1.75rem;
+  height: 1rem;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--muted);
+  transition: background 0.15s;
+}
+
+.switch-field-control[data-state='checked'] {
+  background: var(--accent);
+}
+
+.switch-field-control[data-focus-visible] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.switch-field-thumb {
+  width: calc(1rem - 4px);
+  height: calc(1rem - 4px);
+  border-radius: 50%;
+  background: var(--fg);
+  transition: transform 0.15s;
+}
+
+.switch-field-thumb[data-state='checked'] {
+  transform: translateX(0.75rem);
 }
 
 .path-legend {
@@ -1155,6 +1210,29 @@ body {
   font-size: 0.95rem;
   font-weight: 600;
   outline: none;
+}
+
+.safe-travel {
+  opacity: 0.1;
+  pointer-events: none;
+}
+
+.safe-travel-region {
+  fill: #cfe8ff;
+  stroke: #cfe8ff;
+  stroke-linejoin: round;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.checkbox-field input {
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .reserved-shape {

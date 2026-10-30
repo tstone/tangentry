@@ -11,17 +11,21 @@ import { circleOverlapsPolygon, polygonsOverlap } from '../geometry/overlap'
 
 export type ReservedPoint = Entrance & { id: number }
 
-export type ReservedCircle = {
+type ReservedBase = {
   id: number
   name: string
+  // Something the player shoots at, so the ball needs a clear path to it
+  // from the flippers.
+  shootable: boolean
+}
+
+export type ReservedCircle = ReservedBase & {
   kind: 'circle'
   center: Entrance
   radius: number
 }
 
-export type ReservedPolygon = {
-  id: number
-  name: string
+export type ReservedPolygon = ReservedBase & {
   kind: 'polygon'
   // Corners in order around the outline.
   points: ReservedPoint[]
@@ -63,10 +67,11 @@ export function addReserved(kind: ReservedKind) {
   setReserved(
     reserved.length,
     kind === 'circle'
-      ? { id, name, kind, center: c, radius: 2 }
+      ? { id, name, shootable: false, kind, center: c, radius: 2 }
       : {
           id,
           name,
+          shootable: false,
           kind,
           points: [
             { x: c.x - 2, y: c.y - 1.5 },
@@ -93,6 +98,12 @@ const edit = (id: number, change: (area: ReservedArea) => void) => setReserved((
 export function renameReserved(id: number, name: string) {
   edit(id, (area) => {
     area.name = name
+  })
+}
+
+export function setShootable(id: number, shootable: boolean) {
+  edit(id, (area) => {
+    area.shootable = shootable
   })
 }
 

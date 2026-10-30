@@ -151,14 +151,17 @@ function readReserved(input: unknown, path: string): ReservedArea {
   const r = object(input, path)
   const id = number(r.id, `${path}.id`)
   const name = typeof r.name === 'string' ? r.name : `Reserved ${id}`
+  // Missing from files saved before areas could be shot at.
+  const shootable = r.shootable === true
   if (r.kind === 'circle') {
-    return { id, name, kind: 'circle', center: point(r.center, `${path}.center`), radius: number(r.radius, `${path}.radius`) }
+    return { id, name, shootable, kind: 'circle', center: point(r.center, `${path}.center`), radius: number(r.radius, `${path}.radius`) }
   }
   oneOf(r.kind, ['circle', 'polygon'] as const, `${path}.kind`)
   if (!Array.isArray(r.points)) throw new Error(`${path}.points should be a list.`)
   return {
     id,
     name,
+    shootable,
     kind: 'polygon',
     points: r.points.map((p, i) => ({
       id: number(object(p, `${path}.points[${i}]`).id, `${path}.points[${i}].id`),

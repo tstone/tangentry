@@ -4,13 +4,16 @@ import { playfield } from '../state/playfield'
 import { imageHeight, playfieldImage } from '../state/playfieldImage'
 import { centerDistance, contactBaseRadius, contactTipRadius, flippers } from '../state/flippers'
 import { highlight } from '../state/highlight'
+import { visible } from '../state/view'
 import { computeLayout } from '../state/layout'
 import { flipperPath } from '../geometry/flipper'
 import Annotations from './Annotations'
 import { DimensionMarkers } from './Dimensions'
+import LayersControl from './LayersControl'
 import PathColoringControl from './PathColoringControl'
 import ProjectDialog from './ProjectDialog'
 import ReservedAreas, { ReservedMarkers } from './ReservedAreas'
+import SafeTravel from './SafeTravel'
 import ShotLanes, { WallMounts } from './ShotLanes'
 import ShotMarkers from './ShotMarkers'
 import ShotPaths from './ShotPaths'
@@ -165,13 +168,26 @@ export default function Preview() {
             )}
           </Index>
         </g>
-        <ReservedAreas />
+        <Show when={visible.safeTravel}>
+          <SafeTravel />
+        </Show>
+        <Show when={visible.reserved}>
+          <ReservedAreas />
+        </Show>
         <Annotations flippers={layout().flippers} />
-        <ShotLanes />
-        <ShotPaths />
-        <WallMounts />
+        <Show when={visible.walls}>
+          <ShotLanes />
+        </Show>
+        <Show when={visible.paths}>
+          <ShotPaths />
+        </Show>
+        <Show when={visible.walls}>
+          <WallMounts />
+        </Show>
         <ShotMarkers />
-        <ReservedMarkers />
+        <Show when={visible.reserved}>
+          <ReservedMarkers />
+        </Show>
       </svg>
       <h1 class="preview-title">Tangentry</h1>
       <div class="preview-zoom" role="group" aria-label="Zoom">
@@ -190,7 +206,10 @@ export default function Preview() {
           +
         </button>
       </div>
-      <PathColoringControl />
+      <div class="view-controls">
+        <PathColoringControl />
+        <LayersControl />
+      </div>
       <ProjectDialog />
     </div>
   )

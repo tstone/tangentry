@@ -5,7 +5,7 @@ import { ballMass } from '../physics/drive'
 import { inlanes } from './inlanes'
 import { ball } from './ball'
 import { walls } from './walls'
-import { selectedId, shots, type LaneAlignment, type Shot, type WallSide } from './shots'
+import { selectedId, shots, type Entrance, type LaneAlignment, type Shot, type WallSide } from './shots'
 import { flexPerSpeed, flexRestitution, wallStiffness, type MountKind } from '../physics/wall'
 import { INLANE_LENGTH, computeLayout, toRadians, type Side } from './layout'
 import { GRAVITY, rollingGravity, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
@@ -84,7 +84,11 @@ export type FlipperSolutions = {
   states: Record<BallState, Solution | null>
 }
 
-export function solveFlippers(shot: Shot): FlipperSolutions[] {
+/**
+ * Solves shots off one flipper: how to fire it so the ball rolls through a
+ * point, given as an entrance is (up from the bottom lip).
+ */
+export function flipperSolver(side: Side) {
   const layout = computeLayout()
   const slope = GRAVITY * Math.sin(toRadians(playfield.angle))
   const ballRadius = ball.diameter / 2
@@ -103,55 +107,57 @@ export function solveFlippers(shot: Shot): FlipperSolutions[] {
     // Released from a standstill.
     cradle: 0,
   }
+  const { pivot } = layout.flippers[side === 'left' ? 0 : 1]
 
+  // The physics works in a left flipper's frame: pivot at the origin, x
+  // toward the center line, y up the playfield. Right flippers are mirrored.
+  const sx = side === 'left' ? 1 : -1
+  const toSvg = (p: Point): Point => ({ x: pivot.x + sx * p.x, y: pivot.y - p.y })
+
+  // Side rails, inset so the ball's edge (not its center) touches them.
+  const walls = [
+    sx * (playfield.sideRail + ballRadius - pivot.x),
+    sx * (playfield.width - playfield.sideRail - ballRadius - pivot.x),
+  ]
+  const bounds = { minX: Math.min(...walls), maxX: Math.max(...walls), maxY: pivot.y - ballRadius }
+
+  const solve = (to: Entrance, state: BallState): Solution | null => {
+    const target = { x: sx * (to.x - pivot.x), y: pivot.y - (playfield.height - to.y) }
+    const s = solveShot({ flipper: spec, ballRadius, ballMass: ballMass(ball.diameter), slope, baseSpeed: baseSpeeds[state], target, bounds })
+    if (!s) return null
+    const angle = (Math.atan2(s.velocity.y, sx * s.velocity.x) * 180) / Math.PI
+    return {
+      fireDistance: s.fireDistance,
+      fireTime: s.fireTime,
+      fireBall: toSvg(s.fireBall),
+      ride: s.ride.map(toSvg),
+      rideSpeeds: s.rideSpeeds,
+      flipperAngle: side === 'left' ? -s.flipperAngle : Math.PI + s.flipperAngle,
+      departure: toSvg(s.departure),
+      departureAngle: angle,
+      speed: s.speed,
+      departureKind: s.departureKind,
+      flight: s.flight.map(toSvg),
+      flightSpeeds: s.flightSpeeds,
+      flightTime: s.flightTime,
+      arrival: toSvg(s.flight[s.flight.length - 1]),
+      arrivalVelocity: { x: sx * s.arrivalVelocity.x, y: -s.arrivalVelocity.y },
+      lane: null,
+    }
+  }
+
+  return { pivot, solve }
+}
+
+export function solveFlippers(shot: Shot): FlipperSolutions[] {
   // Shots left of center cross from the right flipper, and vice versa.
   const crossSide: Side = shot.entrance.x < flippers.centerLine ? 'right' : 'left'
 
   return APPROACHES.map(({ approach }) => {
     const side: Side = approach === 'cross' ? crossSide : crossSide === 'left' ? 'right' : 'left'
-    const { pivot } = layout.flippers[side === 'left' ? 0 : 1]
-
-    // The physics works in a left flipper's frame: pivot at the origin, x
-    // toward the center line, y up the playfield. Right flippers are mirrored.
-    const sx = side === 'left' ? 1 : -1
-    const toSvg = (p: Point): Point => ({ x: pivot.x + sx * p.x, y: pivot.y - p.y })
-    const target = {
-      x: sx * (shot.entrance.x - pivot.x),
-      y: pivot.y - (playfield.height - shot.entrance.y),
-    }
-
-    // Side rails, inset so the ball's edge (not its center) touches them.
-    const walls = [
-      sx * (playfield.sideRail + ballRadius - pivot.x),
-      sx * (playfield.width - playfield.sideRail - ballRadius - pivot.x),
-    ]
-    const bounds = { minX: Math.min(...walls), maxX: Math.max(...walls), maxY: pivot.y - ballRadius }
-
-    const solve = (state: BallState): Solution | null => {
-      const s = solveShot({ flipper: spec, ballRadius, ballMass: ballMass(ball.diameter), slope, baseSpeed: baseSpeeds[state], target, bounds })
-      if (!s) return null
-      const angle = (Math.atan2(s.velocity.y, sx * s.velocity.x) * 180) / Math.PI
-      return {
-        fireDistance: s.fireDistance,
-        fireTime: s.fireTime,
-        fireBall: toSvg(s.fireBall),
-        ride: s.ride.map(toSvg),
-        rideSpeeds: s.rideSpeeds,
-        flipperAngle: side === 'left' ? -s.flipperAngle : Math.PI + s.flipperAngle,
-        departure: toSvg(s.departure),
-        departureAngle: angle,
-        speed: s.speed,
-        departureKind: s.departureKind,
-        flight: s.flight.map(toSvg),
-        flightSpeeds: s.flightSpeeds,
-        flightTime: s.flightTime,
-        arrival: toSvg(s.flight[s.flight.length - 1]),
-        arrivalVelocity: { x: sx * s.arrivalVelocity.x, y: -s.arrivalVelocity.y },
-        lane: null,
-      }
-    }
-
-    return { approach, side, pivot, states: { inlane: solve('inlane'), cradle: solve('cradle') } }
+    const { pivot, solve } = flipperSolver(side)
+    const states = { inlane: solve(shot.entrance, 'inlane'), cradle: solve(shot.entrance, 'cradle') }
+    return { approach, side, pivot, states }
   })
 }
 

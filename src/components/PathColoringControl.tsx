@@ -24,7 +24,7 @@ function Swatch(props: { class: string; label: string }) {
 export default function PathColoringControl() {
   return (
     <div class="path-coloring">
-      <SelectField label="Color paths by" options={PATH_COLORINGS} value={pathColoring()} onChange={setPathColoring} />
+      <SelectField label="Paths" options={PATH_COLORINGS} value={pathColoring()} onChange={setPathColoring} />
       <Switch>
         <Match when={pathColoring() === 'origin'}>
           <ul class="path-legend">
