@@ -284,7 +284,9 @@ export type WallResponse = (side: number, index: number) => { restitution: numbe
 /**
  * Follow the ball through the lane from `position` with `velocity`, rolling
  * freely with `gravity` pulling toward +y and bouncing off the walls, which
- * respond to each hit as `wall` gives. Spin and wall friction are ignored. Returns null if the lane is too narrow for the ball.
+ * stand `w` apart at each sample of the center line and respond to each hit
+ * as `wall` gives. Spin and wall friction are ignored. Returns null if the
+ * lane is too narrow for the ball.
  *
  * Each step the ball is placed relative to the center line. If it has gone
  * further to either side than the ball's center can reach, it has hit that
@@ -294,18 +296,16 @@ export type WallResponse = (side: number, index: number) => { restitution: numbe
  */
 export function runLane(
   curve: CurveSample[],
-  width: LaneWidth,
+  w: number[],
   ballRadius: number,
   position: Point,
   velocity: Point,
   gravity: number,
   wall: WallResponse,
 ): LaneRun | null {
-  // The taper is linear, so the narrowest point is at one end.
-  if (Math.min(width.entrance, width.exit) / 2 <= ballRadius || curve.length < 2) return null
+  if (Math.min(...w) / 2 <= ballRadius || curve.length < 2) return null
 
   const last = curve.length - 1
-  const w = laneWidths(curve, width)
 
   // Where a point is relative to the center line: the segment it's beside,
   // how far along that segment (beyond 0–1 past either end of the lane), and

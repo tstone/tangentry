@@ -564,6 +564,12 @@ body {
   fill: #b89cff;
 }
 
+/* An exit a direction handle would join to if let go. */
+.shot-exit.is-link-target {
+  stroke: #fff;
+  stroke-width: 3;
+}
+
 .shot-exit-direction {
   stroke: #6bc5ff;
   stroke-width: 1.5;

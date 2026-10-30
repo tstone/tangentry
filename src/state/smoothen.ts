@@ -2,7 +2,7 @@ import { batch } from 'solid-js'
 import { ball } from './ball'
 import { playfield } from './playfield'
 import { moveVia, shots, updateShot, type Shot } from './shots'
-import { analyze, solveFlippers, type FlipperSolutions, type ShotAnalysis } from './solutions'
+import { analyze, joinedLane, solveFlippers, type FlipperSolutions, type ShotAnalysis } from './solutions'
 import { MAX_FLEX } from '../physics/wall'
 import type { LaneOutcome, LaneRun } from '../geometry/lane'
 
@@ -80,9 +80,11 @@ export function smoothen(shotId: number): SmoothenResult | null {
   const shot = shots.find((s) => s.id === shotId)
   if (!shot) return null
   const solved: FlipperSolutions[] = solveFlippers(shot)
+  // A joined lane is left as it is; the ball still runs on through it.
+  const joined = joinedLane(shotId)
   const evaluate = (params: Params) => {
     const candidate = { ...shot, ...params }
-    const analysis = analyze(candidate, solved)
+    const analysis = analyze(candidate, solved, joined)
     return { cost: roughness(candidate, analysis), analysis }
   }
 

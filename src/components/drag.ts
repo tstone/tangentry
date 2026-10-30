@@ -3,9 +3,10 @@ import type { Point } from '../geometry/flipper'
 
 /**
  * Track a pointer drag on an SVG element, reporting positions in playfield
- * coordinates (inches, measured up from the bottom lip).
+ * coordinates (inches, measured up from the bottom lip), and calling `onEnd`
+ * when it's let go.
  */
-export function startDrag(event: PointerEvent, onMove: (p: Point) => void) {
+export function startDrag(event: PointerEvent, onMove: (p: Point) => void, onEnd?: () => void) {
   const handle = event.currentTarget as SVGGraphicsElement
   const svg = handle.ownerSVGElement
   if (!svg || event.button !== 0) return false
@@ -23,6 +24,7 @@ export function startDrag(event: PointerEvent, onMove: (p: Point) => void) {
     handle.removeEventListener('pointermove', move)
     handle.removeEventListener('pointerup', end)
     handle.removeEventListener('pointercancel', end)
+    onEnd?.()
   }
   handle.addEventListener('pointermove', move)
   handle.addEventListener('pointerup', end)

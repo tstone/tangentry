@@ -3,7 +3,7 @@ import { ball } from './ball'
 import { playfield } from './playfield'
 import { walls } from './walls'
 import { setMounts, newMount, type WallMount } from './shots'
-import { WALL_SIDES, shotAnalyses } from './solutions'
+import { WALL_SIDES, contactWall, shotAnalyses } from './solutions'
 import { MAX_FLEX, flexPerSpeed, wallStiffness, type MountKind } from '../physics/wall'
 import { ballMass } from '../physics/drive'
 import { normal } from '../geometry/lane'
@@ -39,7 +39,16 @@ export function suggestMounts(shotId: number) {
   const mass = ballMass(ball.diameter)
   // Walls of the other lanes, which can crowd out a spade bolt.
   const others = shotAnalyses().flatMap((a) => (a.id !== shotId && a.lane ? a.lane.walls.map((w) => w.points) : []))
-  const runs = analysis.flippers.flatMap((f) => Object.values(f.states).flatMap((s) => (s?.lane ? [s.lane] : [])))
+  // Hits on this lane's walls, from its own ball paths and from those of a
+  // joined lane that run on through it.
+  const hits = shotAnalyses()
+    .filter((a) => a.id === shotId || a.joined?.id === shotId)
+    .flatMap((a) =>
+      a.flippers.flatMap((f) =>
+        Object.values(f.states).flatMap((s) => (s?.lane?.bounces ?? []).map((hit) => ({ hit, at: contactWall(a, hit) }))),
+      ),
+    )
+    .filter(({ at }) => at.id === shotId)
 
   const suggested = WALL_SIDES.map(({ side, offset }) => {
     const wall = lane.walls.find((w) => w.side === side)!
@@ -48,14 +57,12 @@ export function suggestMounts(shotId: number) {
 
     // Hardest hit expected at each point of the wall.
     const load = wall.lengths.map(() => NOMINAL_HIT)
-    for (const run of runs) {
-      for (const hit of run.bounces) {
-        if (hit.side !== offset) continue
-        const at = wall.lengths[hit.index]
-        wall.lengths.forEach((l, i) => {
-          if (Math.abs(l - at) <= HIT_SPREAD) load[i] = Math.max(load[i], hit.normalSpeed)
-        })
-      }
+    for (const { hit, at } of hits) {
+      if (at.offset !== offset) continue
+      const along = wall.lengths[at.index]
+      wall.lengths.forEach((l, i) => {
+        if (Math.abs(l - along) <= HIT_SPREAD) load[i] = Math.max(load[i], hit.normalSpeed)
+      })
     }
 
     const nearest = (distance: number) => {

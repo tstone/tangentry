@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js'
+import { batch, createSignal } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { playfield } from './playfield'
 import type { Continuity } from '../geometry/lane'
@@ -59,6 +59,10 @@ export type Shot = {
   // for shapes a single bend can't make.
   via: ViaPoint[]
   mounts: Record<WallSide, WallMount[]>
+  // Shot whose exit this one's is joined to, making the two lanes one, as
+  // an orbit is: a ball shot into either comes out of the other's entrance.
+  // Joined exits share a point and width and point opposite ways.
+  link: number | null
 }
 
 export type ViaPoint = Entrance & { id: number }
@@ -80,7 +84,7 @@ const defaultMounts = (): WallMount[] => [
   { id: nextMountId++, kind: 'spade', at: 0.95 },
 ]
 
-type NewShot = Partial<Omit<Shot, 'id' | 'via' | 'mounts'>>
+type NewShot = Partial<Omit<Shot, 'id' | 'via' | 'mounts' | 'link'>>
 
 export function addShot(options: NewShot = {}) {
   const id = nextId++
@@ -103,6 +107,7 @@ export function addShot(options: NewShot = {}) {
     entrance,
     via: [],
     mounts: { left: defaultMounts(), right: defaultMounts() },
+    link: null,
   })
   setSelectedId(id)
 }
@@ -119,6 +124,7 @@ addShot({
 
 export function removeShot(id: number) {
   const index = shots.findIndex((shot) => shot.id === id)
+  unlinkShot(id)
   setShots((list) => list.filter((shot) => shot.id !== id))
   if (selectedId() === id) {
     // Select the neighbor that slid into its place, or the new last shot.
@@ -130,8 +136,44 @@ export function setEntrance(id: number, entrance: Partial<Entrance>) {
   setShots((shot) => shot.id === id, 'entrance', entrance)
 }
 
+const linkOf = (id: number) => shots.find((shot) => shot.id === id)?.link ?? null
+
+/** The direction pointing the other way, within ±180°. */
+const opposite = (angle: number) => (angle > 0 ? angle - 180 : angle + 180)
+
+/** Move a shot's exit, and the exit joined to it along with it. */
 export function setExit(id: number, exit: Partial<Exit>) {
-  setShots((shot) => shot.id === id, 'exit', exit)
+  const link = linkOf(id)
+  batch(() => {
+    setShots((shot) => shot.id === id, 'exit', exit)
+    if (link === null) return
+    const { angle, ...at } = exit
+    setShots((shot) => shot.id === link, 'exit', angle === undefined ? at : { ...at, angle: opposite(angle) })
+  })
+}
+
+/**
+ * Join shot `id`'s exit to `to`'s, so the two lanes run as one. The lane
+ * being joined on moves its exit to the other's, keeping that one in place.
+ */
+export function linkShots(id: number, to: number) {
+  const target = shots.find((shot) => shot.id === to)
+  if (!target || id === to) return
+  batch(() => {
+    unlinkShot(id)
+    unlinkShot(to)
+    setShots((shot) => shot.id === id, {
+      exit: { x: target.exit.x, y: target.exit.y, angle: opposite(target.exit.angle) },
+      exitWidth: target.exitWidth,
+      link: to,
+    })
+    setShots((shot) => shot.id === to, 'link', id)
+  })
+}
+
+/** Separate a shot's lane from the one it's joined to, leaving both where they are. */
+export function unlinkShot(id: number) {
+  setShots((shot) => shot.id === id || shot.link === id, 'link', null)
 }
 
 export function updateShot(
@@ -151,7 +193,14 @@ export function updateShot(
     >
   >,
 ) {
-  setShots((shot) => shot.id === id, changes)
+  const link = linkOf(id)
+  batch(() => {
+    setShots((shot) => shot.id === id, changes)
+    // Joined lanes meet at one width.
+    if (link !== null && changes.exitWidth !== undefined) {
+      setShots((shot) => shot.id === link, 'exitWidth', changes.exitWidth)
+    }
+  })
 }
 
 let nextViaId = 1

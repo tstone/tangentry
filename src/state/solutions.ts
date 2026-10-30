@@ -13,6 +13,7 @@ import type { Point } from '../geometry/flipper'
 import {
   runLane,
   laneCenterLine,
+  laneWidths,
   normal,
   offsetCurve,
   tightestBend,
@@ -20,6 +21,7 @@ import {
   type CurveSample,
   type LaneOutcome,
   type LaneRun,
+  type WallContact,
 } from '../geometry/lane'
 
 // How the ball arrives on the flipper before the shot.
@@ -173,6 +175,8 @@ export type LaneWall = {
 
 export type Lane = {
   center: CurveSample[]
+  // Wall-to-wall width at each sample of the center line.
+  widths: number[]
   walls: LaneWall[]
   // Solution the entrance is lined up with. Differs from the shot's
   // alignment when that one has no solution.
@@ -189,6 +193,9 @@ export type ShotAnalysis = {
   id: number
   flippers: FlipperSolutions[]
   lane: Lane | null
+  // The lane joined on at the exit, which the ball runs on through to its
+  // entrance: its shot, and the samples along both center lines together.
+  joined: { id: number; samples: number } | null
 }
 
 const ALIGNMENT_ORDER: LaneAlignment[] = ['cross-inlane', 'cross-cradle', 'backhand-inlane', 'backhand-cradle']
@@ -201,14 +208,13 @@ const solutionFor = (flippers: FlipperSolutions[], alignment: LaneAlignment) => 
 const scaleNormal = (t: Point, side: number): Point => ({ x: normal(t).x * side, y: normal(t).y * side })
 
 /**
- * Solve a shot's flippers and run each ball path through its lane. The
- * flipper solutions depend only on the entrance, so callers trying many lane
- * shapes for one entrance can solve them once and pass them in.
+ * A shot's lane, lined up with one of its solved ball paths; null if none
+ * reaches the entrance.
  */
-export function analyze(shot: Shot, solved = solveFlippers(shot)): ShotAnalysis {
+export function shapeLane(shot: Shot, solved: FlipperSolutions[]): Lane | null {
   // Use the shot's chosen solution, or the first one that exists.
   const alignedTo = [shot.alignment, ...ALIGNMENT_ORDER].find((a) => solutionFor(solved, a))
-  if (!alignedTo) return { id: shot.id, flippers: solved, lane: null }
+  if (!alignedTo) return null
 
   const reference = solutionFor(solved, alignedTo)!
   const entrance = { x: shot.entrance.x, y: playfield.height - shot.entrance.y }
@@ -236,9 +242,7 @@ export function analyze(shot: Shot, solved = solveFlippers(shot)): ShotAnalysis 
     exit: shot.exitWidth,
     funnelLength: shot.funnelLength,
   }
-  const ballRadius = ball.diameter / 2
   const mass = ballMass(ball.diameter)
-  const gravity = rollingGravity(GRAVITY * Math.sin(toRadians(playfield.angle)))
 
   const laneWalls: LaneWall[] = WALL_SIDES.map(({ side, offset }) => {
     const points = offsetCurve(center, offset, width)
@@ -268,10 +272,79 @@ export function analyze(shot: Shot, solved = solveFlippers(shot)): ShotAnalysis 
       })),
     }
   })
-  const response = (offset: number, index: number) => {
-    const wall = laneWalls[WALL_SIDES.findIndex((w) => w.offset === offset)]
-    return { restitution: wall.restitution[index], flexPerSpeed: wall.flexPerSpeed[index] }
+  return {
+    center,
+    widths: laneWidths(center, width),
+    walls: laneWalls,
+    alignedTo,
+    tooNarrow: Math.min(width.entrance, width.exit) <= ball.diameter,
+    overRail: Math.max(
+      0,
+      ...laneWalls.flatMap((w) =>
+        w.points.map((p) => Math.max(playfield.sideRail - p.x, p.x - (playfield.width - playfield.sideRail))),
+      ),
+    ),
+    tightest: tightestBend(center),
   }
+}
+
+const wallOn = (lane: Lane, offset: number) => lane.walls[WALL_SIDES.findIndex((w) => w.offset === offset)]
+
+/**
+ * What the ball runs along: a lane, then on through the lane joined to its
+ * exit, backward from there to that lane's entrance. Going backward swaps
+ * the joined lane's walls, since its right is then on the ball's left.
+ */
+function track(own: Lane, joined: Lane | null) {
+  const n = own.center.length
+  if (!joined) {
+    return {
+      center: own.center,
+      widths: own.widths,
+      response: (offset: number, index: number) => {
+        const wall = wallOn(own, offset)
+        return { restitution: wall.restitution[index], flexPerSpeed: wall.flexPerSpeed[index] }
+      },
+    }
+  }
+  const length = own.center[n - 1].s + joined.center.at(-1)!.s
+  // The exits are the same point, so it's kept once.
+  const back = joined.center.slice(0, -1).reverse()
+  const center: CurveSample[] = [
+    ...own.center,
+    ...back.map((q) => ({ p: q.p, t: { x: -q.t.x, y: -q.t.y }, s: length - q.s })),
+  ]
+  const last = center.length - 1
+  return {
+    center,
+    widths: [...own.widths, ...joined.widths.slice(0, -1).reverse()],
+    response: (offset: number, index: number) => {
+      const wall = index < n ? wallOn(own, offset) : wallOn(joined, -offset)
+      const i = index < n ? index : last - index
+      return { restitution: wall.restitution[i], flexPerSpeed: wall.flexPerSpeed[i] }
+    },
+  }
+}
+
+/**
+ * Which wall a ball path in a shot's analysis touched: whose lane, which
+ * side (as `offsetCurve` numbers them) and which sample along it.
+ */
+export function contactWall(analysis: ShotAnalysis, contact: WallContact) {
+  const own = analysis.lane?.center.length ?? 0
+  if (!analysis.joined || contact.index < own) return { id: analysis.id, offset: contact.side, index: contact.index }
+  return { id: analysis.joined.id, offset: -contact.side, index: analysis.joined.samples - 1 - contact.index }
+}
+
+/**
+ * Run each of a shot's solved ball paths through its lane, and on through
+ * the lane joined to its exit if there is one.
+ */
+function runLanes(shot: Shot, solved: FlipperSolutions[], lane: Lane | null, joined: Lane | null): ShotAnalysis {
+  if (!lane) return { id: shot.id, flippers: solved, lane: null, joined: null }
+  const { center, widths, response } = track(lane, joined)
+  const ballRadius = ball.diameter / 2
+  const gravity = rollingGravity(GRAVITY * Math.sin(toRadians(playfield.angle)))
 
   const flippers = solved.map((f) => ({
     ...f,
@@ -280,7 +353,7 @@ export function analyze(shot: Shot, solved = solveFlippers(shot)): ShotAnalysis 
         state,
         s && {
           ...s,
-          lane: runLane(center, width, ballRadius, s.arrival, s.arrivalVelocity, gravity, response),
+          lane: runLane(center, widths, ballRadius, s.arrival, s.arrivalVelocity, gravity, response),
         },
       ]),
     ) as Record<BallState, Solution | null>,
@@ -289,31 +362,54 @@ export function analyze(shot: Shot, solved = solveFlippers(shot)): ShotAnalysis 
   return {
     id: shot.id,
     flippers,
-    lane: {
-      center,
-      walls: laneWalls,
-      alignedTo,
-      tooNarrow: Math.min(width.entrance, width.exit) <= ball.diameter,
-      overRail: Math.max(
-        0,
-        ...laneWalls.flatMap((w) =>
-          w.points.map((p) => Math.max(playfield.sideRail - p.x, p.x - (playfield.width - playfield.sideRail))),
-        ),
-      ),
-      tightest: tightestBend(center),
-    },
+    lane,
+    joined: joined && shot.link !== null ? { id: shot.link, samples: center.length } : null,
   }
 }
 
-// Each shot is solved separately, so editing one doesn't re-solve the rest.
+/**
+ * Solve a shot's flippers and run each ball path through its lane, and on
+ * through `joined`, the lane of the shot linked to it. The flipper
+ * solutions depend only on the entrance, so callers trying many lane shapes
+ * for one entrance can solve them once and pass them in.
+ */
+export function analyze(shot: Shot, solved = solveFlippers(shot), joined: Lane | null = null): ShotAnalysis {
+  return runLanes(shot, solved, shapeLane(shot, solved), joined)
+}
+
+// Each shot's lane is shaped separately, so editing one doesn't re-solve
+// the rest. Its ball paths are run once its own and any joined lane are.
+const laneShapes = createRoot(() => {
+  const list = mapArray(
+    () => shots,
+    (shot) => {
+      const solved = createMemo(() => solveFlippers(shot))
+      return { id: shot.id, solved, lane: createMemo(() => shapeLane(shot, solved())) }
+    },
+  )
+  return createMemo(list)
+})
+
 // Shared by the sidebar and the preview.
 export const shotAnalyses = createRoot(() => {
   const list = mapArray(
     () => shots,
-    (shot) => createMemo(() => analyze(shot)),
+    (shot) =>
+      createMemo(() => {
+        const own = laneShapes().find((s) => s.id === shot.id)
+        if (!own) return analyze(shot)
+        const joined = shot.link === null ? null : (laneShapes().find((s) => s.id === shot.link)?.lane() ?? null)
+        return runLanes(shot, own.solved(), own.lane(), joined)
+      }),
   )
   return createMemo(() => list().map((analysis) => analysis()))
 })
+
+/** The lane of the shot joined to `shotId`'s, as currently shaped. */
+export const joinedLane = (shotId: number) => {
+  const link = shots.find((s) => s.id === shotId)?.link ?? null
+  return link === null ? null : (shotAnalyses().find((a) => a.id === link)?.lane ?? null)
+}
 
 export const selectedAnalysis = createRoot(() =>
   createMemo(() => shotAnalyses().find((a) => a.id === selectedId()) ?? null),

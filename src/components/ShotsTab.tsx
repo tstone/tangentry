@@ -17,6 +17,7 @@ import {
   setExit,
   setSelectedId,
   shots,
+  unlinkShot,
   updateShot,
   type LaneAlignment,
   type Shot,
@@ -493,6 +494,26 @@ function ShotCard(props: { shot: Shot }) {
           value={props.shot.exitWidth}
           onChange={(exitWidth) => updateShot(props.shot.id, { exitWidth })}
         />
+        <Show
+          when={shots.find((s) => s.id === props.shot.link)}
+          fallback={
+            <p class="field-note">
+              Drag the exit or its direction handle onto another lane's exit to join the two into one lane, as an orbit is.
+            </p>
+          }
+        >
+          {(partner) => (
+            <>
+              <p class="field-note">
+                Joined to {partner().name}: the ball runs on through its lane and out of its entrance. The exit and its
+                width are shared; each lane's exit weight is its own side of the handle.
+              </p>
+              <button type="button" class="wall-mount-add" onClick={() => unlinkShot(props.shot.id)}>
+                Separate lanes
+              </button>
+            </>
+          )}
+        </Show>
 
         <h4 class="sidebar-heading">Lane</h4>
         <SelectField
