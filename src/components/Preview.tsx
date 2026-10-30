@@ -9,6 +9,7 @@ import { computeLayout } from '../state/layout'
 import { flipperPath } from '../geometry/flipper'
 import Annotations from './Annotations'
 import ExtraFlippers, { ExtraFlipperHandles } from './ExtraFlippers'
+import FeedCallout from './FeedCallout'
 import { DimensionMarkers } from './Dimensions'
 import LayersControl from './LayersControl'
 import PathColoringControl from './PathColoringControl'
@@ -233,6 +234,7 @@ export default function Preview() {
         </Show>
         <ExtraFlipperHandles />
         <ShotMarkers />
+        <FeedCallout />
         <Show when={visible.reserved}>
           <ReservedMarkers />
         </Show>

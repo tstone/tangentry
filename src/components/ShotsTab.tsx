@@ -4,13 +4,13 @@ import CardName from './CardName'
 import SelectField from './SelectField'
 import SliderField from './SliderField'
 import { playfield } from '../state/playfield'
-import { ball } from '../state/ball'
 import {
   HORSESHOE_RADIUS,
   HORSESHOE_ROTATION,
   addMount,
   canLeaveBy,
   endPoint,
+  endName,
   fedBy,
   feedChain,
   feedLoops,
@@ -49,6 +49,8 @@ import {
 import {
   crossSide,
   shotAlignment,
+  fitOffset,
+  maxOffset as laneMaxOffset,
   targetFlipper,
   BALL_STATES,
   WALL_SIDES,
@@ -93,11 +95,14 @@ const formatSigned = (inches: number) => (inches > 0 ? `+${formatInches(inches)}
 
 function LaneNotes(props: { shot: Shot }) {
   const lane = () => selectedAnalysis()?.lane ?? null
+  const flipperLabel = (alignment: LaneAlignment, end: ShotEnd) => {
+    const key = alignment.split('-')[0] as FlipperKey
+    const run = selectedAnalysis()?.runs.find((r) => r.end === end)
+    return run?.flippers.find((f) => f.key === key)?.label ?? key
+  }
   const label = (alignment: LaneAlignment, end: ShotEnd) => {
     const [key, state] = alignment.split('-') as [FlipperKey, BallState]
-    const run = selectedAnalysis()?.runs.find((r) => r.end === end)
-    const flipper = run?.flippers.find((f) => f.key === key)
-    return `${flipper?.label ?? key} · ${stateLabel(key, state).toLowerCase()}`
+    return `${flipperLabel(alignment, end)} · ${stateLabel(key, state).toLowerCase()}`
   }
   const double = () => props.shot.end === 'double'
   return (
@@ -113,6 +118,22 @@ function LaneNotes(props: { shot: Shot }) {
               <p class="shot-solution-none">
                 That shot{double() ? ' into the entrance' : ''} has no solution; lined up with{' '}
                 {label(alignedTo(), 'entrance')} instead.
+              </p>
+            )}
+          </Show>
+          <Show when={!l().reached && l().alignedTo}>
+            {(alignedTo) => (
+              <p class="shot-solution-none">
+                No shot off {flipperLabel(alignedTo(), 'entrance')} reaches the{double() ? ' entrance' : ' lane'}, so
+                it points straight from that flipper.
+              </p>
+            )}
+          </Show>
+          <Show when={double() && !l().exitReached && l().exitAlignedTo}>
+            {(alignedTo) => (
+              <p class="shot-solution-none">
+                No shot off {flipperLabel(alignedTo(), 'exit')} reaches the exit, so it points straight from that
+                flipper.
               </p>
             )}
           </Show>
@@ -165,7 +186,7 @@ function LaneNotes(props: { shot: Shot }) {
 
 function LaneShaping(props: { shot: Shot }) {
   // Far enough to put the ball against either wall at the mouth.
-  const maxOffset = () => Math.max(0, props.shot.entranceWidth / 2 - ball.diameter / 2)
+  const maxOffset = () => laneMaxOffset(props.shot.entranceWidth)
   const laneLength = () => selectedAnalysis()?.lane?.exitDistance ?? 0
   return (
     <>
@@ -174,7 +195,7 @@ function LaneShaping(props: { shot: Shot }) {
         min={-maxOffset()}
         max={maxOffset()}
         centered
-        value={props.shot.entranceOffset}
+        value={fitOffset(props.shot.entranceOffset, props.shot.entranceWidth)}
         format={formatSigned}
         ends={['ball nearer left wall', 'nearer right wall']}
         onChange={(entranceOffset) => updateShot(props.shot.id, { entranceOffset })}
@@ -306,9 +327,6 @@ function WallMounts(props: { shot: Shot; side: WallSide; label: string }) {
 // A flipper to shoot from, or a lane end feeding this one, chosen as
 // `feed-${id}-${end}`.
 type OriginChoice = TargetFlipper | `feed-${number}-${ShotEnd}`
-
-/** How one end of a shot's lane is named: either end of a double-ended lane, or its exit. */
-const endName = (shot: Shot, end: ShotEnd) => `${shot.name}'s ${end}${shot.end === 'double' ? ' end' : ''}`
 
 /**
  * Where the ball comes into one end of the lane from: shot off a flipper,
@@ -614,10 +632,10 @@ function ShotCard(props: { shot: Shot }) {
         <Show when={props.shot.end === 'double'}>
           <SliderField
             label="Exit offset"
-            min={-Math.max(0, props.shot.exitWidth / 2 - ball.diameter / 2)}
-            max={Math.max(0, props.shot.exitWidth / 2 - ball.diameter / 2)}
+            min={-laneMaxOffset(props.shot.exitWidth)}
+            max={laneMaxOffset(props.shot.exitWidth)}
             centered
-            value={props.shot.exitOffset}
+            value={fitOffset(props.shot.exitOffset, props.shot.exitWidth)}
             format={formatSigned}
             ends={['ball nearer left wall', 'nearer right wall']}
             onChange={(exitOffset) => updateShot(props.shot.id, { exitOffset })}

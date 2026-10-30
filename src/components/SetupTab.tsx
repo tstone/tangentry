@@ -24,13 +24,17 @@ import {
 import {
   addExtraFlipper,
   extraFlippers,
+  flipperFeed,
   removeExtraFlipper,
   selectedFlipperId,
   setSelectedFlipperId,
   updateExtraFlipper,
   type ExtraFlipper,
 } from '../state/extraFlippers'
-import { hoveredFlipper } from '../state/view'
+import { canLeaveBy, endName, shots, type Feed, type ShotEnd } from '../state/shots'
+import { fedFlipperSettings } from '../state/solutions'
+import { formatDegrees } from './Dimensions'
+import { hoveredFlipper, setCalledOutFeed } from '../state/view'
 import { flipperHoverHandlers } from './ExtraFlippers'
 import { inlanes, setInlanes } from '../state/inlanes'
 import { ball, setBall } from '../state/ball'
@@ -168,10 +172,85 @@ const SIDE_OPTIONS: { label: string; value: ExtraFlipper['side'] }[] = [
   { label: 'Right (points left)', value: 'right' },
 ]
 
+// The lane end feeding an extra flipper, as `${id}-${end}`, or none.
+type FeedChoice = 'none' | `${number}-${ShotEnd}`
+
+const feedOf = (choice: `${number}-${ShotEnd}`): Feed => {
+  const [id, end] = choice.split('-')
+  return { id: Number(id), end: end as ShotEnd }
+}
+
+/**
+ * Where the ball comes onto an extra flipper from: rolling in at its own
+ * entrance speed, or out of a lane's end, which it then lines up with.
+ */
+function FlipperFeedField(props: { flipper: ExtraFlipper }) {
+  const f = () => props.flipper
+  const feed = () => flipperFeed(f())
+  const fed = () => (feed() ? fedFlipperSettings(f()) : null)
+  const options = (): { label: string; value: FeedChoice }[] => [
+    { label: 'Rolls in at its entrance speed', value: 'none' },
+    // Any lane's exit, and either end of a double-ended lane.
+    ...shots.flatMap((s) =>
+      (['exit', 'entrance'] as const)
+        .filter((end) => canLeaveBy(s, end))
+        .map((end) => ({ label: endName(s, end), value: `${s.id}-${end}` as FeedChoice })),
+    ),
+  ]
+  const value = (): FeedChoice => {
+    const from = feed()
+    return from ? `${from.id}-${from.end}` : 'none'
+  }
+  const source = () => {
+    const from = feed()
+    const shot = from && shots.find((s) => s.id === from.id)
+    return from && shot ? endName(shot, from.end) : ''
+  }
+  return (
+    <>
+      <SelectField
+        label="Fed from"
+        options={options()}
+        value={value()}
+        onHover={(choice) => setCalledOutFeed(choice === null || choice === 'none' ? null : feedOf(choice))}
+        onChange={(choice) => {
+          if (choice === value()) return
+          if (choice === 'none') {
+            // Keep the flipper where the lane had it, rather than jumping back.
+            const settings = fed()
+            updateExtraFlipper(f().id, {
+              feed: null,
+              ...(settings && {
+                side: settings.side,
+                restAngle: Math.round(settings.restAngle * 10) / 10,
+                ...(settings.entranceSpeed !== null && { entranceSpeed: Math.round(settings.entranceSpeed) }),
+              }),
+            })
+            return
+          }
+          updateExtraFlipper(f().id, { feed: feedOf(choice) })
+        }}
+      />
+      <Show when={fed()}>
+        {(settings) => (
+          <p class="field-note">
+            Points the way the ball leaves {source()}: mounted {settings().side}, at{' '}
+            {formatDegrees(settings().restAngle)} below horizontal.{' '}
+            {settings().entranceSpeed === null
+              ? 'No ball path makes it out of there, so the ball arrives at the entrance speed below.'
+              : `The ball arrives at the ${Math.round(settings().entranceSpeed!)} in/s it leaves at, along the shot that end's lane is lined up with.`}
+          </p>
+        )}
+      </Show>
+    </>
+  )
+}
+
 function ExtraFlipperCard(props: { flipper: ExtraFlipper }) {
   const f = () => props.flipper
   const update = (changes: Partial<Omit<ExtraFlipper, 'id'>>) => updateExtraFlipper(f().id, changes)
   const selected = () => selectedFlipperId() === f().id
+  const fed = () => (flipperFeed(f()) ? fedFlipperSettings(f()) : null)
   return (
     <div
       class="wall-mount extra-flipper-card"
@@ -198,31 +277,40 @@ function ExtraFlipperCard(props: { flipper: ExtraFlipper }) {
           −
         </button>
       </div>
-      <SelectField label="Mounted" options={SIDE_OPTIONS} value={f().side} onChange={(side) => update({ side })} />
+      <FlipperFeedField flipper={f()} />
+      <Show when={!fed()}>
+        <SelectField label="Mounted" options={SIDE_OPTIONS} value={f().side} onChange={(side) => update({ side })} />
+      </Show>
       <SelectField
         label="Profile"
         options={PROFILE_OPTIONS}
         value={f().profile}
         onChange={(profile) => update({ profile })}
       />
-      <NumberField
-        label="Rest angle"
-        unit="°"
-        min={-60}
-        max={90}
-        step={1}
-        value={f().restAngle}
-        onChange={(restAngle) => update({ restAngle })}
-      />
-      <NumberField
-        label="Entrance speed"
-        unit="in/s"
-        min={0}
-        max={500}
-        step={1}
-        value={f().entranceSpeed}
-        onChange={(entranceSpeed) => update({ entranceSpeed })}
-      />
+      <SelectField label="Coil" options={COIL_OPTIONS} value={f().coil} onChange={(coil) => update({ coil })} />
+      <Show when={!fed()}>
+        <NumberField
+          label="Rest angle"
+          unit="°"
+          min={-60}
+          max={90}
+          step={1}
+          value={f().restAngle}
+          onChange={(restAngle) => update({ restAngle })}
+        />
+      </Show>
+      {/* A fed flipper keeps its own speed while no ball path makes it out of the lane. */}
+      <Show when={fed()?.entranceSpeed == null}>
+        <NumberField
+          label="Entrance speed"
+          unit="in/s"
+          min={0}
+          max={500}
+          step={1}
+          value={f().entranceSpeed}
+          onChange={(entranceSpeed) => update({ entranceSpeed })}
+        />
+      </Show>
       <div class="field-pair">
         <NumberField
           label="Pivot X"
@@ -265,8 +353,9 @@ function ExtraFlippersSection() {
       </button>
       <p class="field-note">
         Drag a flipper's pivot on the playfield to move it. Rest angle is the center line's, below horizontal. The ball
-        rolls onto the flipper down its axis, reaching the base at the entrance speed. Extra flippers share the stroke,
-        coil and rubber friction above.
+        rolls onto the flipper down its axis, reaching the base at the entrance speed. A flipper fed from a lane's end
+        instead points the way the ball leaves it and takes the speed it leaves at, reckoned from shots off the main
+        flippers and extra flippers not fed from a lane. Extra flippers share the stroke and rubber friction above.
       </p>
     </section>
   )

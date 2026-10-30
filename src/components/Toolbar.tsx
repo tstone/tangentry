@@ -3,7 +3,7 @@ import { Portal } from 'solid-js/web'
 import { Menu } from '@ark-ui/solid/menu'
 import { addShot, selectedShot, shots, type ShotType } from '../state/shots'
 import { addReserved, reserved, selectedReservedId } from '../state/reserved'
-import { extraFlippers, selectedFlipperId } from '../state/extraFlippers'
+import { addExtraFlipper, extraFlippers, selectedFlipperId } from '../state/extraFlippers'
 import { insertVia } from '../state/viaPoints'
 import { sketching, startSketch } from '../state/sketch'
 import { runSmoothen, smoothing } from '../state/smoothenRun'
@@ -44,8 +44,27 @@ export default function Toolbar() {
     log(`Added a bend point to ${s.name}.`)
   }
 
+  const addFlipper = () => {
+    addExtraFlipper()
+    log(`Added ${extraFlippers.at(-1)?.name ?? 'a flipper'}.`)
+  }
+
   return (
     <div class="tool-strip" role="toolbar" aria-orientation="vertical" aria-label="Tools">
+      <button
+        type="button"
+        class="preview-zoom-button toolbar-icon-button"
+        title="Add an extra flipper in the middle of the playfield; drag its pivot to move it"
+        disabled={busy()}
+        onClick={addFlipper}
+      >
+        {/* A flipper with a plus. */}
+        <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2 5.5a2 2 0 0 1 2.4-2l8 2.2a1 1 0 0 1 0 1.9l-8 2.2A2 2 0 0 1 2 7.8Z" />
+          <path d="M11.5 10v5M9 12.5h5" />
+        </svg>
+        Add flipper
+      </button>
       <button
         type="button"
         class="preview-zoom-button toolbar-icon-button"

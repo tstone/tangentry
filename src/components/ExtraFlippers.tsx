@@ -8,6 +8,7 @@ import {
 } from '../state/extraFlippers'
 import { flipperShape } from '../state/flippers'
 import { extraFlipperLayout } from '../state/layout'
+import { resolvedExtraFlipper } from '../state/solutions'
 import { hoveredFlipper, setHoveredFlipper } from '../state/view'
 import { flipperProfile } from '../physics/drive'
 import { flipperPath } from '../geometry/flipper'
@@ -25,7 +26,8 @@ export const flipperHoverHandlers = (id: number) => ({
 function Body(props: { flipper: ExtraFlipper }) {
   const stock = () => flipperProfile(props.flipper.profile)
   const shape = () => flipperShape(stock())
-  const layout = () => extraFlipperLayout(props.flipper)
+  // A fed flipper points the way the ball comes out of the lane feeding it.
+  const layout = () => extraFlipperLayout(resolvedExtraFlipper(props.flipper))
   return (
     <g
       class="extra-flipper"

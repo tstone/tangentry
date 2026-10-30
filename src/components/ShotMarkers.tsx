@@ -1,5 +1,4 @@
 import { For, Show, onCleanup } from 'solid-js'
-import { ball } from '../state/ball'
 import { playfield } from '../state/playfield'
 import {
   endPoint,
@@ -18,7 +17,7 @@ import {
   type Shot,
   type ShotEnd,
 } from '../state/shots'
-import { laneExit, leavingExit, shotAnalyses } from '../state/solutions'
+import { fitOffset, laneExit, leavingExit, maxOffset as laneMaxOffset, shotAnalyses } from '../state/solutions'
 import { hoveredShot, setHoveredShot } from '../state/view'
 import { focusOn, focusedPart, type FocusPart } from '../state/focus'
 import type { Point } from '../geometry/flipper'
@@ -307,7 +306,8 @@ function EndControls(props: { shot: Shot; end: ShotEnd; focused: boolean; grab: 
     return { p: sample.p, t: { x: -sample.t.x, y: -sample.t.y } }
   }
   const width = () => (atEntrance() ? shot.entranceWidth : shot.exitWidth)
-  const offset = () => (atEntrance() ? shot.entranceOffset : shot.exitOffset)
+  // As the lane uses it: no further than its width now allows.
+  const offset = () => fitOffset(atEntrance() ? shot.entranceOffset : shot.exitOffset, width())
   const leadIn = () => (atEntrance() ? shot.leadIn : shot.exitLeadIn)
   const weight = () => (atEntrance() ? shot.entranceWeight : shot.exitWeight)
   // A double-ended lane's exit not lined up with any ball points the way it's
@@ -323,7 +323,7 @@ function EndControls(props: { shot: Shot; end: ShotEnd; focused: boolean; grab: 
   const leadInEnd = (m: { p: Point; t: Point }) => fromMouth(m, leadIn())
   const weightHandle = (m: { p: Point; t: Point }) => fromMouth(m, leadIn() + DIRECTION_LENGTH * weight())
   // Far enough to put the ball against either wall at the mouth, as the sidebar allows.
-  const maxOffset = () => Math.max(0, width() / 2 - ball.diameter / 2)
+  const maxOffset = () => laneMaxOffset(width())
   // The offset slider runs across the mouth, back where the ball comes from
   // so it's clear of the end's handle; its handle sits level with where the lane meets the end.
   const offsetRail = (t: Point, at: number) => ({

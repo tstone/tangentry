@@ -1,7 +1,7 @@
 import { createMemo, createRoot, createSignal } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { viewedRuns, type BallState, type Solution } from './solutions'
-import type { FlipperKey, ShotEnd } from './shots'
+import type { Feed, FlipperKey, ShotEnd } from './shots'
 
 // What the shot paths are colored by:
 // - origin: how the ball arrived on the flipper (inlane or cradle)
@@ -54,6 +54,11 @@ export { hoveredFlipper, setHoveredFlipper }
 // An unselected shot under the mouse on the playfield, which a click would select.
 const [hoveredShot, setHoveredShot] = createSignal<number | null>(null)
 export { hoveredShot, setHoveredShot }
+
+// A lane end pointed at in a list of ends to feed from, called out on the
+// playfield so it can be told from the others.
+const [calledOutFeed, setCalledOutFeed] = createSignal<Feed | null>(null)
+export { calledOutFeed, setCalledOutFeed }
 
 // A reserved area under the mouse on the playfield, which a click would select.
 const [hoveredReserved, setHoveredReserved] = createSignal<number | null>(null)

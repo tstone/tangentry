@@ -29,9 +29,16 @@ function SolutionDetails(props: { solution: Solution }) {
   return (
     <dl class="shot-solution">
       <dt>Fire at</dt>
-      <dd>{formatInches(s().fireDistance)} along flipper</dd>
+      {/* A negative distance and time fire the flipper before the ball reaches it. */}
+      <dd>
+        {s().fireDistance < 0
+          ? `${formatInches(-s().fireDistance)} short of flipper`
+          : `${formatInches(s().fireDistance)} along flipper`}
+      </dd>
       <dt>Timing</dt>
-      <dd>{formatMs(s().fireTime)} after reaching base</dd>
+      <dd>
+        {s().fireTime < 0 ? `${formatMs(-s().fireTime)} before reaching base` : `${formatMs(s().fireTime)} after reaching base`}
+      </dd>
       <dt>Departs</dt>
       <dd>
         {formatDegrees(s().departureAngle)} at {Math.round(s().speed)} in/s

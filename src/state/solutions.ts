@@ -1,8 +1,8 @@
 import { createMemo, createRoot, mapArray } from 'solid-js'
 import { playfield } from './playfield'
 import { flipperShape, flippers, profile, restAngle, torque, type FlipperShape } from './flippers'
-import { extraFlipperKey, extraFlippers, type ExtraFlipper } from './extraFlippers'
-import { ballMass, flipperInertia, flipperProfile, type FlipperProfile } from '../physics/drive'
+import { extraFlipperKey, extraFlippers, flipperFeed, type ExtraFlipper } from './extraFlippers'
+import { ballMass, coilTorque, flipperInertia, flipperProfile, type FlipperProfile } from '../physics/drive'
 import { inlanes } from './inlanes'
 import { ball } from './ball'
 import { walls } from './walls'
@@ -19,6 +19,7 @@ import {
   type Entrance,
   type BallState,
   type Exit,
+  type Feed,
   type FlipperKey,
   type LaneAlignment,
   type Leg,
@@ -128,14 +129,15 @@ export type FlipperSolver = ReturnType<typeof solverFor>
 /**
  * Solves shots off one flipper: how to fire it so the ball rolls through a
  * point, given as an entrance is (up from the bottom lip). `restAngle` is
- * in degrees; `baseSpeeds` are the ways the ball can arrive on it, with its
- * speed along the flipper as it reaches the base.
+ * in degrees; `torque` is its coil's; `baseSpeeds` are the ways the ball can
+ * arrive on it, with its speed along the flipper as it reaches the base.
  */
 function solverFor(
   side: Side,
   pivot: Point,
   stock: FlipperProfile,
   restAngle: number,
+  torque: number,
   baseSpeeds: Partial<Record<BallState, number>>,
 ) {
   const states = BALL_STATES.map((s) => s.state).filter((state) => state in baseSpeeds)
@@ -146,7 +148,7 @@ function solverFor(
     ...shape,
     restAngle: toRadians(restAngle),
     stroke: toRadians(flippers.strokeAngle),
-    torque: torque(),
+    torque,
     inertia: flipperInertia(stock),
     friction: flippers.friction,
   }
@@ -194,7 +196,7 @@ function solverFor(
 export function flipperSolver(side: Side) {
   const { pivot } = computeLayout().flippers[side === 'left' ? 0 : 1]
   const slope = GRAVITY * Math.sin(toRadians(playfield.angle))
-  return solverFor(side, pivot, profile(), restAngle(), {
+  return solverFor(side, pivot, profile(), restAngle(), torque(), {
     inlane: rollingSpeed(ball.inlaneSpeed, slope, toRadians(inlanes.angle), INLANE_LENGTH),
     // Released from a standstill.
     cradle: 0,
@@ -203,10 +205,12 @@ export function flipperSolver(side: Side) {
 
 /**
  * Solves shots off an extra flipper. The ball rolls onto it along its axis,
- * reaching the base at the flipper's own entrance speed.
+ * reaching the base at the flipper's own entrance speed, or at the speed it
+ * leaves the lane feeding the flipper.
  */
-export function extraFlipperSolver(f: ExtraFlipper) {
-  return solverFor(f.side, extraFlipperLayout(f).pivot, flipperProfile(f.profile), f.restAngle, {
+export function extraFlipperSolver(flipper: ExtraFlipper) {
+  const f = resolvedExtraFlipper(flipper)
+  return solverFor(f.side, extraFlipperLayout(f).pivot, flipperProfile(f.profile), f.restAngle, coilTorque(f.coil), {
     inlane: f.entranceSpeed,
   })
 }
@@ -258,20 +262,41 @@ export const shotAlignment = (shot: Shot, end: ShotEnd = 'entrance'): LaneAlignm
   return `${key}-${key.startsWith('extra') ? 'inlane' : originOf(shot, end).ballState}`
 }
 
+// Which flippers to solve shots off. A fed extra flipper's ball comes out
+// of a lane, which is shaped and run with the ball paths off the rest, so
+// those are solved apart from the fed ones: 'base' is the main pair and
+// every extra flipper not fed from a lane, 'fed' the others.
+type Tier = 'all' | 'base' | 'fed'
+
+const inTier = (f: ExtraFlipper, tier: Tier) => tier === 'all' || (tier === 'fed') === (flipperFeed(f) !== null)
+
 /**
  * Every flipper's shots through one end of a shot's lane: the main pair's,
  * cross-field first, then each extra flipper's.
  */
-export function solveFlippers(shot: Shot, end: ShotEnd = 'entrance'): FlipperSolutions[] {
+export function solveFlippers(shot: Shot, end: ShotEnd = 'entrance', tier: Tier = 'all'): FlipperSolutions[] {
   const to = endPoint(shot, end)
   const cross = crossSide(to)
 
-  const main = APPROACHES.map(({ approach, label }) => {
-    const side: Side = approach === 'cross' ? cross : cross === 'left' ? 'right' : 'left'
-    return solveWith(flipperSolver(side), side, `${label} · ${side} flipper`, approach, to)
-  })
-  const extra = extraFlippers.map((f) => solveWith(extraFlipperSolver(f), extraFlipperKey(f.id), f.name, null, to))
+  const main =
+    tier === 'fed'
+      ? []
+      : APPROACHES.map(({ approach, label }) => {
+          const side: Side = approach === 'cross' ? cross : cross === 'left' ? 'right' : 'left'
+          return solveWith(flipperSolver(side), side, `${label} · ${side} flipper`, approach, to)
+        })
+  const extra = extraFlippers
+    .filter((f) => inTier(f, tier))
+    .map((f) => solveWith(extraFlipperSolver(f), extraFlipperKey(f.id), f.name, null, to))
   return [...main, ...extra]
+}
+
+/** The base and fed flippers' shots together, in the order `solveFlippers` gives them all. */
+function mergeTiers(base: FlipperSolutions[], fed: FlipperSolutions[]) {
+  if (fed.length === 0) return base
+  const order = (key: FlipperKey) => extraFlippers.findIndex((f) => extraFlipperKey(f.id) === key)
+  // The main pair stay first, as the sort is stable.
+  return [...base, ...fed].sort((a, b) => order(a.key) - order(b.key))
 }
 
 // Which wall each `offsetCurve` side is: 1 is to the right of travel.
@@ -309,12 +334,17 @@ export type Lane = {
   // alignment when that one has no solution. Null for a fed entrance,
   // which lines up with the lane end feeding it.
   alignedTo: LaneAlignment | null
+  // False when the flipper chosen for the entrance has no ball path to it,
+  // so the entrance points straight from that flipper's pivot instead.
+  reached: boolean
   // Whether a double-ended lane's exit points back the way the ball comes
   // into it, as its entrance does. When no ball path reaches it, it points
   // the way it's set instead.
   exitLinedUp: boolean
   // Solution the exit is lined up with, as for the entrance.
   exitAlignedTo: LaneAlignment | null
+  // As `reached`, for the exit.
+  exitReached: boolean
   // The ball is wider than the lane.
   tooNarrow: boolean
   // Furthest a wall runs past a side rail, inches; 0 if the lane fits.
@@ -422,18 +452,35 @@ export type Inlet = { solved: FlipperSolutions[]; from: Exit | null }
  * The way the ball heads into a lane at `at` (SVG coordinates): along the
  * ball path lined up with `alignment`, or another if that one has no
  * solution; or for a fed end, straight across from the lane end feeding it,
- * or the way that end points if it's right there. Null if no ball path
- * reaches it.
+ * or the way that end points if it's right there. A flipper chosen by hand
+ * (`pinned`) is never swapped for another: when none of its ball paths
+ * reach the end, the lane points straight from its pivot, unreached. Null if
+ * no ball path reaches it.
  */
-function inletDirection(at: Point, alignment: LaneAlignment, inlet: Inlet) {
+function inletDirection(at: Point, alignment: LaneAlignment, inlet: Inlet, pinned: boolean) {
   if (inlet.from) {
     const from = exitSample(inlet.from)
     const across = { x: at.x - from.p.x, y: at.y - from.p.y }
-    return { dir: Math.hypot(across.x, across.y) > 1e-6 ? unit(across) : from.t, alignedTo: null }
+    return { dir: Math.hypot(across.x, across.y) > 1e-6 ? unit(across) : from.t, alignedTo: null, reached: true }
   }
   const aligned = alignedSolution(alignment, inlet.solved)
-  return aligned && { dir: unit(aligned.solution.arrivalVelocity), alignedTo: aligned.alignedTo }
+  const key = alignment.slice(0, alignment.lastIndexOf('-'))
+  const chosen = pinned ? inlet.solved.find((f) => f.key === key) : undefined
+  if (chosen && !aligned?.alignedTo.startsWith(`${key}-`)) {
+    const across = { x: at.x - chosen.pivot.x, y: at.y - chosen.pivot.y }
+    if (Math.hypot(across.x, across.y) > 1e-6) return { dir: unit(across), alignedTo: alignment, reached: false }
+  }
+  return aligned && { dir: unit(aligned.solution.arrivalVelocity), alignedTo: aligned.alignedTo, reached: true }
 }
+
+/** Furthest a lane `width` wide can sit off to one side of the ball coming into it, inches. */
+export const maxOffset = (width: number) => Math.max(0, width / 2 - ball.diameter / 2)
+
+/** A lane end's offset from the ball, held within what its width allows. */
+export const fitOffset = (offset: number, width: number) => Math.max(-maxOffset(width), Math.min(maxOffset(width), offset))
+
+/** Whether the flipper a shot is made off into one end was chosen by hand, not left automatic. */
+const pinnedFlipper = (shot: Shot, end: ShotEnd) => originOf(shot, end).flipper !== 'auto'
 
 /**
  * A shot's lane, its entrance lined up with the way the ball comes in
@@ -444,28 +491,32 @@ function inletDirection(at: Point, alignment: LaneAlignment, inlet: Inlet) {
 export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = null): Lane | null {
   const entrance = { x: shot.entrance.x, y: playfield.height - shot.entrance.y }
   const exit = { x: shot.exit.x, y: playfield.height - shot.exit.y }
-  const into = inletDirection(entrance, shotAlignment(shot), inlet)
+  const into = inletDirection(entrance, shotAlignment(shot), inlet, pinnedFlipper(shot, 'entrance'))
   if (!into) return null
   const startDir = into.dir
   const back =
-    shot.end === 'double' && exitInlet ? inletDirection(exit, shotAlignment(shot, 'exit'), exitInlet) : null
+    shot.end === 'double' && exitInlet
+      ? inletDirection(exit, shotAlignment(shot, 'exit'), exitInlet, pinnedFlipper(shot, 'exit'))
+      : null
   const exitAngle = toRadians(shot.exit.angle)
   const endDir = back
     ? { x: -back.dir.x, y: -back.dir.y }
     : // Screen angles are counter-clockwise; SVG y points down.
       { x: Math.cos(exitAngle), y: -Math.sin(exitAngle) }
-  // The lane can sit off to one side of where the ball enters.
+  // The lane can sit off to one side of where the ball enters, but no
+  // further than keeps the ball clear of its walls: an offset set on a
+  // wider lane holds only as far as the lane's width now allows.
+  const entranceOffset = fitOffset(shot.entranceOffset, shot.entranceWidth)
   const start = {
-    x: entrance.x - normal(startDir).x * shot.entranceOffset,
-    y: entrance.y - normal(startDir).y * shot.entranceOffset,
+    x: entrance.x - normal(startDir).x * entranceOffset,
+    y: entrance.y - normal(startDir).y * entranceOffset,
   }
   // A double-ended lane's exit is an entrance too, offset and led into the
   // same way, as seen by the ball coming in there.
   const double = shot.end === 'double'
   const backDir = { x: -endDir.x, y: -endDir.y }
-  const end = double
-    ? { x: exit.x - normal(backDir).x * shot.exitOffset, y: exit.y - normal(backDir).y * shot.exitOffset }
-    : exit
+  const exitOffset = fitOffset(shot.exitOffset, shot.exitWidth)
+  const end = double ? { x: exit.x - normal(backDir).x * exitOffset, y: exit.y - normal(backDir).y * exitOffset } : exit
   const horseshoe = shot.end === 'horseshoe'
   const turn = toRadians(shot.horseshoe.rotation)
   const toExit = laneCenterLine(
@@ -533,8 +584,10 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
     pieces,
     walls: laneWalls,
     alignedTo: into.alignedTo,
+    reached: into.reached,
     exitLinedUp: back !== null,
     exitAlignedTo: back?.alignedTo ?? null,
+    exitReached: back?.reached ?? true,
     tooNarrow: Math.min(width.entrance, width.exit) <= ball.diameter,
     overRail: Math.max(
       0,
@@ -738,6 +791,8 @@ const sameLeg = (a: Leg | null, b: Leg | null) => a === b || (!!a && !!b && a.sh
 
 // Each shot's lane is shaped separately, so editing one doesn't re-solve
 // the rest. Its ball paths are run once its own and any feeding lanes are.
+// It's shaped from the base flippers' shots too, for the extra flippers it
+// feeds; without fed flippers to shoot it from, that's the same lane.
 const laneShapes = createRoot(() => {
   const list = mapArray(
     () => shots,
@@ -748,17 +803,35 @@ const laneShapes = createRoot(() => {
         const feeder = createMemo(() => (shotInto() ? (feedChain(shot, end).at(-1) ?? null) : null), null, {
           equals: sameLeg,
         })
-        const solved = createMemo(() => (shotInto() && !feeder() ? solveFlippers(shot, end) : []))
-        const inlet = (): Inlet => {
+        const solveTier = (tier: Tier) => createMemo(() => (shotInto() && !feeder() ? solveFlippers(shot, end, tier) : []))
+        const base = solveTier('base')
+        const fed = solveTier('fed')
+        const solved = createMemo(() => mergeTiers(base(), fed()))
+        const inlet = (list: FlipperSolutions[]): Inlet => {
           const from = feeder()
-          return { solved: solved(), from: from && leavingExit(from.shot, from.leaves) }
+          return { solved: list, from: from && leavingExit(from.shot, from.leaves) }
         }
-        return { solved, inlet }
+        return { solved: { all: solved, base }, inlet }
       }
       const entrance = inletAt('entrance')
       const exit = inletAt('exit')
-      const lane = createMemo(() => shapeLane(shot, entrance.inlet(), shot.end === 'double' ? exit.inlet() : null))
-      return { id: shot.id, solved: { entrance: entrance.solved, exit: exit.solved }, lane }
+      const shape = (tier: 'all' | 'base') =>
+        shapeLane(
+          shot,
+          entrance.inlet(entrance.solved[tier]()),
+          shot.end === 'double' ? exit.inlet(exit.solved[tier]()) : null,
+        )
+      const baseLane = createMemo(() => shape('base'))
+      const lane = createMemo(() =>
+        entrance.solved.all() === entrance.solved.base() && exit.solved.all() === exit.solved.base()
+          ? baseLane()
+          : shape('all'),
+      )
+      return {
+        id: shot.id,
+        solved: { entrance: entrance.solved, exit: exit.solved },
+        lane: { all: lane, base: baseLane },
+      }
     },
   )
   return createMemo(list)
@@ -766,24 +839,120 @@ const laneShapes = createRoot(() => {
 
 /**
  * How the ball comes into one end of a shot's lane: off the flippers, or
- * through the lanes feeding it, as they're currently shaped.
+ * through the lanes feeding it, as they're currently shaped. With the
+ * 'base' tier, only off the flippers not fed from a lane, through lanes
+ * shaped from those.
  */
-export function inflowOf(shot: Shot, end: ShotEnd = 'entrance'): Inflow {
+export function inflowOf(shot: Shot, end: ShotEnd = 'entrance', tier: 'all' | 'base' = 'all'): Inflow {
   const shapes = laneShapes()
   const shapeOf = (id: number) => shapes.find((s) => s.id === id)
   const chain = feedChain(shot, end)
-  if (chain.length === 0) return { solved: shapeOf(shot.id)?.solved[end]() ?? solveFlippers(shot, end), feeders: [] }
+  if (chain.length === 0)
+    return { solved: shapeOf(shot.id)?.solved[end][tier]() ?? solveFlippers(shot, end, tier), feeders: [] }
   // The first lane is shot into by its other end.
   const first = chain[0]
   return {
-    solved: shapeOf(first.shot.id)?.solved[otherEnd(first.leaves)]() ?? [],
+    solved: shapeOf(first.shot.id)?.solved[otherEnd(first.leaves)][tier]() ?? [],
     feeders: chain.map(({ shot: s, leaves }) => ({
       id: s.id,
       exit: leavingExit(s, leaves),
-      lane: shapeOf(s.id)?.lane() ?? null,
+      lane: shapeOf(s.id)?.lane[tier]() ?? null,
       backward: leaves === 'entrance',
     })),
   }
+}
+
+/**
+ * The ball path the ball paths into one end of a shot's lane are reckoned
+ * by: the one the end it's first shot into lines up with, or the one that
+ * end falls back to. A fed end's ball comes off the flippers into the first
+ * lane feeding it, by that lane's other end.
+ */
+export function targetSolution(shot: Shot, end: ShotEnd, solved: FlipperSolutions[]) {
+  const first = feedChain(shot, end)[0]
+  const alignment = first ? shotAlignment(first.shot, otherEnd(first.leaves)) : shotAlignment(shot, end)
+  return alignedSolution(alignment, solved)
+}
+
+// What a fed extra flipper takes from the lane end feeding it, where that
+// overrides its own settings. Its entrance speed is null if no ball path
+// makes it out of that end.
+type FedSettings = { side: Side; restAngle: number; entranceSpeed: number | null }
+
+/**
+ * How the ball leaves a lane by one end onto an extra flipper: the way the
+ * lane points there, and the speed the target ball path into its other end
+ * leaves at, run off the base flippers.
+ */
+function fedSettings(feed: Feed): FedSettings | null {
+  const shot = shots.find((s) => s.id === feed.id)
+  if (!shot) return null
+  const lane = laneShapes()
+    .find((s) => s.id === shot.id)
+    ?.lane.base()
+  // Out of the lane straight on from its end, back up it for a double-ended
+  // lane left by its entrance.
+  let angle = leavingExit(shot, feed.end).angle
+  if (lane) {
+    const t = feed.end === 'exit' ? laneExit(lane).sample.t : { x: -lane.center[0].t.x, y: -lane.center[0].t.y }
+    // SVG y points down; angles are counter-clockwise on screen.
+    angle = (Math.atan2(-t.y, t.x) * 180) / Math.PI
+  }
+  // The ball rolls down the flipper's axis, from base to tip: a left
+  // flipper points right, so a ball heading right lands on one.
+  const side: Side = Math.cos(toRadians(angle)) >= 0 ? 'left' : 'right'
+  const below = side === 'left' ? -angle : angle + 180
+  const restAngle = ((((below + 180) % 360) + 360) % 360) - 180
+
+  const into = otherEnd(feed.end)
+  const inflow = inflowOf(shot, into, 'base')
+  const target = targetSolution(shot, into, inflow.solved)
+  let entranceSpeed: number | null = null
+  if (lane && target) {
+    const [key, state] = target.alignedTo.split('-') as [FlipperKey, BallState]
+    const flipper = inflow.solved.find((f) => f.key === key)!
+    // Only the target ball path is run through.
+    const run = runEnd(shot, lane, into, { ...inflow, solved: [{ ...flipper, states: { [state]: target.solution } }] })
+    entranceSpeed = run.flippers[0]?.states[state]?.lane?.exitSpeed ?? null
+  }
+  return { side, restAngle, entranceSpeed }
+}
+
+// Each fed extra flipper's settings from the lane end feeding it, worked
+// out apart so that moving one flipper doesn't re-run another's.
+const fedFlippers = createRoot(() => {
+  const list = mapArray(
+    () => extraFlippers,
+    (f) => {
+      const feed = createMemo(() => flipperFeed(f), null, {
+        equals: (a, b) => a === b || (!!a && !!b && a.id === b.id && a.end === b.end),
+      })
+      const settings = createMemo(() => {
+        const from = feed()
+        return from && fedSettings(from)
+      })
+      return { id: f.id, settings }
+    },
+  )
+  return createMemo(list)
+})
+
+/** What an extra flipper takes from the lane end feeding it, if it's fed. */
+export const fedFlipperSettings = (f: ExtraFlipper): FedSettings | null =>
+  fedFlippers()
+    .find((s) => s.id === f.id)
+    ?.settings() ?? null
+
+/**
+ * An extra flipper as it's set up on the playfield: its own settings, or
+ * those it takes from the lane end feeding it. Without a ball path out of
+ * that end, it keeps its own entrance speed.
+ */
+export function resolvedExtraFlipper(f: ExtraFlipper): ExtraFlipper {
+  if (!flipperFeed(f)) return f
+  const fed = fedFlipperSettings(f)
+  if (!fed) return f
+  return { ...f, side: fed.side, restAngle: fed.restAngle, entranceSpeed: fed.entranceSpeed ?? f.entranceSpeed }
 }
 
 // Shared by the sidebar and the preview.
@@ -794,7 +963,7 @@ export const shotAnalyses = createRoot(() => {
       createMemo(() => {
         const own = laneShapes().find((s) => s.id === shot.id)
         if (!own) return analyze(shot)
-        return withRuns(shot, own.lane(), inflowOf(shot), shot.end === 'double' ? inflowOf(shot, 'exit') : null)
+        return withRuns(shot, own.lane.all(), inflowOf(shot), shot.end === 'double' ? inflowOf(shot, 'exit') : null)
       }),
   )
   return createMemo(() => list().map((analysis) => analysis()))

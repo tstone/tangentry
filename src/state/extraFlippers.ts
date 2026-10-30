@@ -2,12 +2,12 @@ import { batch } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { playfield } from './playfield'
 import { focusOn, focusedId, unfocus } from './focus'
-import { originOf, setOrigin, shots, type Entrance, type FlipperKey, type ShotEnd } from './shots'
-import type { FlipperProfileId } from '../physics/drive'
+import { canLeaveBy, originOf, setOrigin, shots, type Entrance, type Feed, type FlipperKey, type ShotEnd } from './shots'
+import type { CoilId, FlipperProfileId } from '../physics/drive'
 
 // Flippers besides the main pair, each placed anywhere on the playfield.
-// They share the main flippers' stroke, coil and rubber friction. All
-// dimensions are in inches, angles in degrees.
+// Each has its own coil; they share the main flippers' stroke and rubber
+// friction. All dimensions are in inches, angles in degrees.
 export type ExtraFlipper = {
   id: number
   name: string
@@ -22,10 +22,19 @@ export type ExtraFlipper = {
   // Speed of the ball rolling down the flipper's axis as it reaches the
   // base, in/s.
   entranceSpeed: number
+  coil: CoilId
+  // The lane end the ball comes out of onto this flipper, as an upper
+  // flipper is fed from an orbit or ramp. While it holds, the flipper points
+  // the way the ball leaves and takes the speed it leaves at, in place of
+  // its own side, rest angle and entrance speed.
+  feed: Feed | null
 }
 
 // About what the main inlanes deliver to the main flippers' bases.
 export const DEFAULT_ENTRANCE_SPEED = 20
+
+// The standard red coil.
+export const DEFAULT_COIL: CoilId = 'FL-11630'
 
 // Dragged and new pivots snap to this increment, like other handles.
 const SNAP = 1 / 16
@@ -53,8 +62,17 @@ export function addExtraFlipper() {
     profile: 'modern-mini',
     restAngle: 30,
     entranceSpeed: DEFAULT_ENTRANCE_SPEED,
+    coil: DEFAULT_COIL,
+    feed: null,
   })
   setSelectedFlipperId(id)
+}
+
+/** The lane end feeding an extra flipper, if that lane is still there and the ball can leave by that end. */
+export function flipperFeed(f: ExtraFlipper): Feed | null {
+  const feed = f.feed
+  const from = feed && shots.find((s) => s.id === feed.id)
+  return feed && from && canLeaveBy(from, feed.end) ? feed : null
 }
 
 /** Shots made off a flipper that's gone go back to the automatic choice. */

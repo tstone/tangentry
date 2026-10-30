@@ -172,6 +172,9 @@ export const originOf = (shot: Shot, end: ShotEnd): Origin =>
 export const endPoint = (shot: Shot, end: ShotEnd): Entrance =>
   end === 'entrance' ? shot.entrance : { x: shot.exit.x, y: shot.exit.y }
 
+/** How one end of a shot's lane is named: either end of a double-ended lane, or its exit. */
+export const endName = (shot: Shot, end: ShotEnd) => `${shot.name}'s ${end}${shot.end === 'double' ? ' end' : ''}`
+
 /** Whether the ball can leave a shot's lane by `end`, to feed another: any end but a horseshoe's. */
 export const canLeaveBy = (shot: Shot, end: ShotEnd) =>
   end === 'exit' ? shot.end !== 'horseshoe' : shot.end === 'double'

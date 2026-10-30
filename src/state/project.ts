@@ -23,6 +23,7 @@ import {
 } from './shots'
 import { replaceReserved, reserved, type ReservedArea } from './reserved'
 import {
+  DEFAULT_COIL,
   DEFAULT_ENTRANCE_SPEED,
   extraFlipperKey,
   extraFlippers,
@@ -157,6 +158,10 @@ function readExtraFlipper(input: unknown, path: string): ExtraFlipper {
     restAngle: number(f.restAngle, `${path}.restAngle`),
     // Missing from files saved while extra flippers were fired from rest.
     entranceSpeed: f.entranceSpeed === undefined ? DEFAULT_ENTRANCE_SPEED : number(f.entranceSpeed, `${path}.entranceSpeed`),
+    // Missing from files saved while extra flippers shared the main coil.
+    coil: f.coil === undefined ? DEFAULT_COIL : oneOf(f.coil, ids(COILS), `${path}.coil`),
+    // Missing from files saved before flippers could be fed from a lane.
+    feed: readFeed(f.feed, `${path}.feed`),
   }
 }
 
@@ -403,8 +408,9 @@ export function importProject(json: string) {
 
   if (new Set(next.shots.map((r) => r.shot.id)).size !== next.shots.length) throw new Error('Two shots share an id.')
   const merged = mergeJoined(next.shots)
-  // A feed only holds if the feeding lane made it into the file and can be
-  // left by that end, and a shot off an extra flipper only if that flipper did.
+  // A feed, into a lane or onto an extra flipper, only holds if the feeding
+  // lane made it into the file and can be left by that end, and a shot off an
+  // extra flipper only if that flipper did.
   const flipperKeys = new Set<string>(next.extraFlippers.map((f) => extraFlipperKey(f.id)))
   const checkFeed = (feed: Feed | null) => {
     const from = feed && merged.find((s) => s.id === feed.id)
@@ -425,7 +431,7 @@ export function importProject(json: string) {
     setInlanes(next.inlanes)
     setBall(next.ball)
     setWalls(next.walls)
-    replaceExtraFlippers(next.extraFlippers)
+    replaceExtraFlippers(next.extraFlippers.map((f) => ({ ...f, feed: checkFeed(f.feed) })))
     replaceShots(shotList)
     replaceReserved(next.reserved)
   })

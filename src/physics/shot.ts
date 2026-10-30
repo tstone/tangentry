@@ -51,8 +51,10 @@ export type Departure = 'tip' | 'stroke-end' | 'lift-off'
 export type ShotSolution = {
   // Distance of the ball along the flipper's top surface, measured from
   // where it leaves the base circle, at the moment the flipper fires.
+  // Negative when fired early, with the ball still that far short of it.
   fireDistance: number
-  // Time from the ball reaching the flipper base until the flipper fires.
+  // Time from the ball reaching the flipper base until the flipper fires;
+  // negative when fired early.
   fireTime: number
   fireBall: Point
   // Ball center while it rides the flipper, fire to departure, and its
@@ -114,9 +116,13 @@ const MAX_STROKE_TIME = 0.5
 // Seconds between recorded points on the ride.
 const RIDE_INTERVAL = 5e-4
 
+// The ball on the flipper, partway through the stroke: `s` along the top
+// surface, sliding toward the tip at `v` relative to it, with the flipper at
+// `theta` turning at `omega`.
+type RideStart = { s: number; v: number; theta: number; omega: number }
+
 /**
- * Fire the flipper with the ball at `s` along the top surface, moving toward
- * the tip at `speed`, and follow it until it leaves the flipper.
+ * Follow the ball from `start` on the flipper until it leaves it.
  *
  * The coil drives the flipper with a constant torque, and the ball pushes
  * back on it: the flipper's angular acceleration and the ball's contact
@@ -130,11 +136,10 @@ const RIDE_INTERVAL = 5e-4
  * tip, when the surface would have to pull on it, or when the flipper hits
  * its stop.
  */
-function strike(f: FlipperSpec, ball: { radius: number; mass: number }, slope: number, s0: number, speed: number): Strike {
+function strike(f: FlipperSpec, ball: { radius: number; mass: number }, slope: number, start: RideStart): Strike {
   const surface = topSurface(f, ball.radius)
   const { u, n, origin } = surface
-  const theta0 = -f.restAngle
-  const thetaEnd = theta0 + f.stroke
+  const thetaEnd = -f.restAngle + f.stroke
   const m = ball.mass
 
   type State = { s: number; v: number; theta: number; omega: number }
@@ -211,7 +216,7 @@ function strike(f: FlipperSpec, ball: { radius: number; mass: number }, slope: n
     omega: a.omega + (b.omega - a.omega) * t,
   })
 
-  let state: State = { s: s0, v: speed, theta: theta0, omega: 0 }
+  let state: State = { ...start }
   let previousNormal: number | null = null
   let previous: State | null = null
   const rideEvery = Math.max(1, Math.round(RIDE_INTERVAL / DT))
@@ -259,6 +264,84 @@ function strike(f: FlipperSpec, ball: { radius: number; mass: number }, slope: n
     previous = prev
   }
   return leave(state, 'stroke-end')
+}
+
+/**
+ * Fire the flipper early, with the ball still `lead` short of the base and
+ * rolling toward it at `speed`, along where the resting flipper's top
+ * surface runs. The flipper swings up unloaded until its top surface meets
+ * the ball; the rubber soaks up the ball's speed into it, and the ball rides
+ * on from there, or rolls off a flipper already up against its stop. Null if
+ * the surface meets the ball past the tip.
+ */
+function earlyStrike(
+  f: FlipperSpec,
+  ball: { radius: number; mass: number },
+  slope: number,
+  lead: number,
+  speed: number,
+): Strike | null {
+  const { u, origin, length } = topSurface(f, ball.radius)
+  const theta0 = -f.restAngle
+  // The surface the ball center runs along is tangent to a circle about the
+  // pivot, so the resting line and the line turned through `turn` cross
+  // `h·tan(turn/2)` either side of their tangent points.
+  const h = Math.hypot(origin.x, origin.y)
+  const unloaded = f.torque / f.inertia
+  const strokeTime = Math.sqrt((2 * f.stroke) / unloaded)
+  const turnAt = (t: number) => (t >= strokeTime ? f.stroke : 0.5 * unloaded * t * t)
+  // Ahead of the turned surface's meeting point by this much; it only grows.
+  const ahead = (t: number) => -lead + speed * t + h * Math.tan(turnAt(t) / 2)
+  let lo = 0
+  let hi = lead / speed
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2
+    if (ahead(mid) < 0) lo = mid
+    else hi = mid
+  }
+  const t = hi
+  const turn = turnAt(t)
+  const s = h * Math.tan(turn / 2)
+  if (s > length) return null
+  const theta = theta0 + turn
+  const fireBall = rotate({ x: origin.x - lead * u.x, y: origin.y - lead * u.y }, theta0)
+  const at = rotate({ x: origin.x + s * u.x, y: origin.y + s * u.y }, theta)
+  const m = ball.mass
+
+  // The ball's velocity, along and into the turned surface.
+  const along = speed * Math.cos(turn)
+  const into = speed * Math.sin(turn)
+  if (t >= strokeTime) {
+    // Up against its stop, the flipper stands still: the ball's speed into
+    // it is lost and friction drags on the rest as it rolls off along it.
+    const v = Math.max(0, along - f.friction * into)
+    return {
+      ride: [fireBall, at],
+      rideSpeeds: [speed, v],
+      position: at,
+      velocity: rotate({ x: v * u.x, y: v * u.y }, theta),
+      flipperAngle: theta,
+      kind: 'stroke-end',
+    }
+  }
+
+  // The surface where it meets the ball moves into it at ω·s and back
+  // toward the base at ω·h. The impact stops the ball's motion into the
+  // surface, which the flipper feels at arm `s`; friction drags on its slide
+  // along it, at arm `h − r` from the pivot.
+  const omega = unloaded * t
+  const closing = into + omega * s
+  const normal = closing / (1 / m + (s * s) / f.inertia)
+  const slide = along + omega * h
+  const friction = Math.min(f.friction * normal, Math.max(0, slide) * m)
+  const omegaAfter = omega - (normal * s + friction * (h - ball.radius)) / f.inertia
+  const ride = strike(f, ball, slope, {
+    s,
+    v: along - friction / m + omegaAfter * h,
+    theta,
+    omega: Math.max(0, omegaAfter),
+  })
+  return { ...ride, ride: [fireBall, ...ride.ride], rideSpeeds: [speed, ...ride.rideSpeeds] }
 }
 
 type Flight = {
@@ -343,8 +426,10 @@ const HIT_TOLERANCE = 0.05
 
 /**
  * Find where along the flipper the ball must be when the flipper fires so
- * that it rolls through `target`. Returns null if no fire position works.
- * When several do, the earliest is used.
+ * that it rolls through `target`, or how far short of the flipper when
+ * fired early. Returns null if no fire position works. When several do, the
+ * earliest with the ball on the flipper is used, and failing those, the
+ * latest early one.
  */
 export function solveShot(input: ShotInput): ShotSolution | null {
   const { flipper, ballRadius, ballMass, slope, baseSpeed, target, bounds } = input
@@ -358,39 +443,63 @@ export function solveShot(input: ShotInput): ShotSolution | null {
   const approach = ROLLING * slope * Math.sin(flipper.restAngle + surface.beta)
   const flightGravity = rollingGravity(slope)
 
+  const ball = { radius: ballRadius, mass: ballMass }
+  // A negative `s` fires the flipper early, with the ball that far short of
+  // the base.
   const evaluate = (s: number) => {
-    const speedSquared = baseSpeed * baseSpeed + 2 * approach * s
-    if (speedSquared < 0) return null
-    const speed = Math.sqrt(speedSquared)
-    const hit = strike(flipper, { radius: ballRadius, mass: ballMass }, slope, s, speed)
+    let speed = baseSpeed
+    let hit: Strike | null
+    if (s < 0) hit = earlyStrike(flipper, ball, slope, -s, baseSpeed)
+    else {
+      const speedSquared = baseSpeed * baseSpeed + 2 * approach * s
+      if (speedSquared < 0) return null
+      speed = Math.sqrt(speedSquared)
+      hit = strike(flipper, ball, slope, { s, v: speed, theta: -flipper.restAngle, omega: 0 })
+    }
+    if (!hit) return null
     const flight = closestApproach(hit.position, hit.velocity, flightGravity, target, bounds)
     return { s, speed, hit, flight }
   }
 
-  let previous = evaluate(0)
-  for (let i = 1; i <= SEARCH_SAMPLES; i++) {
-    const current = evaluate((surface.length * i) / SEARCH_SAMPLES)
-    if (previous && current && Math.sign(previous.flight.miss) !== Math.sign(current.flight.miss)) {
-      let lo = previous
-      let hi = current
-      for (let j = 0; j < 40; j++) {
-        const mid = evaluate((lo.s + hi.s) / 2)
-        if (!mid) break
-        if (Math.sign(mid.flight.miss) === Math.sign(lo.flight.miss)) lo = mid
-        else hi = mid
+  /** The first fire position from `from` to `to` that sends the ball through the target. */
+  const search = (from: number, to: number) => {
+    let previous = evaluate(from)
+    for (let i = 1; i <= SEARCH_SAMPLES; i++) {
+      const current = evaluate(from + ((to - from) * i) / SEARCH_SAMPLES)
+      if (previous && current && Math.sign(previous.flight.miss) !== Math.sign(current.flight.miss)) {
+        let lo = previous
+        let hi = current
+        for (let j = 0; j < 40; j++) {
+          const mid = evaluate((lo.s + hi.s) / 2)
+          if (!mid) break
+          if (Math.sign(mid.flight.miss) === Math.sign(lo.flight.miss)) lo = mid
+          else hi = mid
+        }
+        const found = lo.flight.distance < hi.flight.distance ? lo : hi
+        // A sign flip can also come from a jump in the path rather than a hit.
+        if (found.flight.distance < HIT_TOLERANCE) return toSolution(found)
       }
-      const found = lo.flight.distance < hi.flight.distance ? lo : hi
-      // A sign flip can also come from a jump in the path rather than a hit.
-      if (found.flight.distance < HIT_TOLERANCE) return toSolution(found)
+      previous = current
     }
-    previous = current
+    return null
   }
-  return null
+
+  // Firing with the ball on the flipper first. Failing that, a rolling ball
+  // can be met by a flipper fired early, already swinging when it gets there;
+  // any earlier than the flipper takes to reach its stop is the same as that.
+  const strokeTime = Math.sqrt((2 * flipper.stroke * flipper.inertia) / flipper.torque)
+  return search(0, surface.length) ?? (baseSpeed > 0 ? search(0, -baseSpeed * strokeTime * 1.05) : null)
 
   function toSolution(found: NonNullable<ReturnType<typeof evaluate>>): ShotSolution {
     const { s, speed, hit, flight } = found
     const fireTime =
-      approach > 1e-9 ? (speed - baseSpeed) / approach : baseSpeed > 0 ? s / baseSpeed : Infinity
+      s < 0
+        ? s / baseSpeed
+        : approach > 1e-9
+          ? (speed - baseSpeed) / approach
+          : baseSpeed > 0
+            ? s / baseSpeed
+            : Infinity
     const steps = 60
     return {
       fireDistance: s,
