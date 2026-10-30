@@ -8,6 +8,7 @@ import { visible } from '../state/view'
 import { computeLayout } from '../state/layout'
 import { flipperPath } from '../geometry/flipper'
 import Annotations from './Annotations'
+import ExtraFlippers, { ExtraFlipperHandles } from './ExtraFlippers'
 import { DimensionMarkers } from './Dimensions'
 import LayersControl from './LayersControl'
 import PathColoringControl from './PathColoringControl'
@@ -191,6 +192,7 @@ export default function Preview() {
               </g>
             )}
           </Index>
+          <ExtraFlippers />
         </g>
         <Show when={visible.safeTravel}>
           <SafeTravel />
@@ -209,6 +211,7 @@ export default function Preview() {
         <Show when={visible.walls}>
           <WallMounts />
         </Show>
+        <ExtraFlipperHandles />
         <ShotMarkers />
         <Show when={visible.reserved}>
           <ReservedMarkers />

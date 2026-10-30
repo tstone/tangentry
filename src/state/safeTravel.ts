@@ -3,8 +3,7 @@ import { playfield } from './playfield'
 import { ball } from './ball'
 import { reserved, type ReservedArea } from './reserved'
 import type { Entrance } from './shots'
-import type { Side } from './layout'
-import { BALL_STATES, flipperSolver, shotAnalyses } from './solutions'
+import { allFlipperSolvers, shotAnalyses } from './solutions'
 import type { LaneOutcome } from '../geometry/lane'
 import { convexHull } from '../geometry/hull'
 import type { Point } from '../geometry/flipper'
@@ -69,7 +68,7 @@ function targets(area: ReservedArea, inset: number): Entrance[] {
   })
 }
 
-/** Regions off both flippers to each shootable reserved area: every flight that reaches its edge. */
+/** Regions off every flipper to each shootable reserved area: every flight that reaches its edge. */
 const areaRegions = createRoot(() => {
   const list = mapArray(
     () => reserved,
@@ -78,9 +77,8 @@ const areaRegions = createRoot(() => {
         if (!area.shootable) return []
         const aims = targets(area, ball.diameter / 2)
         const svg: Point[] = aims.map((p) => ({ x: p.x, y: playfield.height - p.y }))
-        return (['left', 'right'] as Side[]).flatMap((side) => {
-          const { solve } = flipperSolver(side)
-          const flights = aims.flatMap((aim) => BALL_STATES.flatMap(({ state }) => solve(aim, state)?.flight ?? []))
+        return allFlipperSolvers().flatMap(({ solve, states }) => {
+          const flights = aims.flatMap((aim) => states.flatMap((state) => solve(aim, state)?.flight ?? []))
           return flights.length > 0 ? [convexHull([...flights, ...svg])] : []
         })
       }),

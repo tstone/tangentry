@@ -1,7 +1,6 @@
 import { For, Index, Show } from 'solid-js'
-import { centerDistance, contactBaseRadius, contactTipRadius } from '../state/flippers'
 import { ball } from '../state/ball'
-import { APPROACHES, BALL_STATES, OUTCOME_LABELS, selectedSolutions } from '../state/solutions'
+import { BALL_STATES, OUTCOME_LABELS, selectedSolutions, stateLabel } from '../state/solutions'
 import { hoveredPath, isHovered, pathColor, pathColoring, speedColor } from '../state/view'
 import { flipperPath, type Point } from '../geometry/flipper'
 import { isHit } from '../geometry/lane'
@@ -47,16 +46,16 @@ export default function ShotPaths() {
       <For each={selectedSolutions()}>
         {(flipper) => (
           <For each={BALL_STATES}>
-            {({ state, label }) => (
+            {({ state }) => (
               <Show when={flipper.states[state]}>
                 {(s) => (
                   <g
-                    class={`shot-path shot-path--${flipper.approach} ${pathColor(state, s()).class}`}
-                    classList={{ 'is-hovered': isHovered(flipper.approach, state) }}
+                    class={`shot-path shot-path--${flipper.approach ?? 'extra'} ${pathColor(state, s()).class}`}
+                    classList={{ 'is-hovered': isHovered(flipper.key, state) }}
                     style={pathColor(state, s()).style}
                   >
                     <title>
-                      {APPROACHES.find((a) => a.approach === flipper.approach)!.label} · {label.toLowerCase()}
+                      {flipper.label} · {stateLabel(flipper.key, state).toLowerCase()}
                       {s().lane ? `: ${OUTCOME_LABELS[s().lane!.outcome]}` : ''}
                     </title>
                     {/* Flipper at the moment the ball leaves it. */}
@@ -64,9 +63,9 @@ export default function ShotPaths() {
                       class="shot-path-flipper"
                       d={flipperPath(
                         flipper.pivot,
-                        contactBaseRadius(),
-                        contactTipRadius(),
-                        centerDistance(),
+                        flipper.shape.baseRadius,
+                        flipper.shape.tipRadius,
+                        flipper.shape.length,
                         s().flipperAngle,
                       )}
                       vector-effect="non-scaling-stroke"

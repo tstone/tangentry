@@ -1,6 +1,7 @@
 import { createMemo, createRoot, createSignal } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import { selectedSolutions, type Approach, type BallState, type Solution } from './solutions'
+import { selectedSolutions, type BallState, type Solution } from './solutions'
+import type { FlipperKey } from './shots'
 
 // What the shot paths are colored by:
 // - origin: how the ball arrived on the flipper (inlane or cradle)
@@ -36,13 +37,18 @@ const [visible, setVisible] = createStore<Record<Layer, boolean>>({
 export const showLayer = (layer: Layer, shown: boolean) => setVisible(layer, shown)
 
 // The path hovered in the shot list, which is called out on the playfield.
-export type PathKey = { approach: Approach; state: BallState }
+export type PathKey = { flipper: FlipperKey; state: BallState }
 const [hoveredPath, setHoveredPath] = createSignal<PathKey | null>(null)
 
-export const isHovered = (approach: Approach, state: BallState) => {
+export const isHovered = (flipper: FlipperKey, state: BallState) => {
   const hovered = hoveredPath()
-  return hovered !== null && hovered.approach === approach && hovered.state === state
+  return hovered !== null && hovered.flipper === flipper && hovered.state === state
 }
+
+// An extra flipper under the mouse, on the playfield or in the sidebar,
+// which can be dragged by its pivot.
+const [hoveredFlipper, setHoveredFlipper] = createSignal<number | null>(null)
+export { hoveredFlipper, setHoveredFlipper }
 
 // An unselected shot under the mouse on the playfield, which a click would select.
 const [hoveredShot, setHoveredShot] = createSignal<number | null>(null)

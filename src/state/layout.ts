@@ -1,6 +1,7 @@
 import { playfield } from './playfield'
 import { centerDistance, contactBaseRadius, flippers, pivotSpacing, restAngle } from './flippers'
 import { inlanes } from './inlanes'
+import type { ExtraFlipper } from './extraFlippers'
 import { flipperPivots, inlaneGuide, type Point } from '../geometry/flipper'
 
 // Approximate length of the inlane guide feeding each flipper, in inches.
@@ -51,4 +52,19 @@ export function computeLayout(): { flippers: FlipperLayout[] } {
   }
 
   return { flippers: [side('left'), side('right')] }
+}
+
+export type ExtraFlipperLayout = {
+  pivot: Point
+  // Direction from pivot to tip, radians in SVG coordinates (y down).
+  angle: number
+}
+
+/** Where an extra flipper sits at rest, in SVG coordinates. */
+export function extraFlipperLayout(f: ExtraFlipper): ExtraFlipperLayout {
+  const rest = toRadians(f.restAngle)
+  return {
+    pivot: { x: f.pivot.x, y: playfield.height - f.pivot.y },
+    angle: f.side === 'left' ? rest : Math.PI - rest,
+  }
 }

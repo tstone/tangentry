@@ -780,6 +780,50 @@ body {
   stroke-opacity: 0.6;
 }
 
+/* Flippers added beyond the main pair, dragged by their pivots. */
+.extra-flipper .flipper {
+  transition: fill 0.12s;
+}
+
+.extra-flipper.is-hovered .flipper {
+  fill: rgba(255, 184, 107, 0.35);
+  stroke: #fff;
+}
+
+.extra-flipper-label {
+  fill: #ffb86b;
+  font-size: 0.5px;
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
+}
+
+.extra-flipper-handle {
+  fill: #ffb86b;
+  stroke: var(--bg);
+  stroke-width: 1.5;
+  cursor: grab;
+  touch-action: none;
+}
+
+.extra-flipper-handle:active {
+  cursor: grabbing;
+}
+
+.extra-flipper-card {
+  transition: border-color 0.12s;
+}
+
+.extra-flipper-card.is-hovered {
+  border-color: #ffb86b;
+}
+
+/* Under the mouse, here or in the sidebar: shows the pivot can be grabbed. */
+.extra-flipper-handle.is-hovered {
+  stroke: #fff;
+  stroke-width: 2;
+}
+
 /* SelectField */
 .select-field {
   display: flex;

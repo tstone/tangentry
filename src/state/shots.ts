@@ -18,9 +18,19 @@ export type Exit = Entrance & {
   angle: number
 }
 
-// Which solved ball path the lane's entrance is lined up with, as
-// `${approach}-${ballState}`.
-export type LaneAlignment = 'cross-inlane' | 'cross-cradle' | 'backhand-inlane' | 'backhand-cradle'
+// Which flipper a ball path comes off: one of the main pair, by side, or an
+// extra flipper, by id.
+export type FlipperKey = 'left' | 'right' | `extra${number}`
+
+// The flipper a shot is made off. 'auto' is the main flipper across the
+// playfield from the entrance.
+export type TargetFlipper = 'auto' | FlipperKey
+
+// How the ball arrives on the flipper before the shot.
+export type BallState = 'inlane' | 'cradle'
+
+// A solved ball path, as `${flipperKey}-${ballState}`.
+export type LaneAlignment = `${FlipperKey}-${BallState}`
 
 // Lane walls, left and right as the ball sees them heading in.
 export type WallSide = 'left' | 'right'
@@ -46,7 +56,10 @@ export type Shot = {
   // turning, as multipliers on the default (1).
   entranceWeight: number
   exitWeight: number
-  alignment: LaneAlignment
+  // The ball path the lane's entrance is lined up with: off this flipper,
+  // arriving this way. An extra flipper's ball only rolls in.
+  flipper: TargetFlipper
+  ballState: BallState
   // How far the lane's center sits from the ball where it enters, inches.
   // Positive puts the ball nearer the right wall.
   entranceOffset: number
@@ -147,7 +160,8 @@ export const shotDefaults = (entrance: Entrance): Shot => ({
   continuity: 'g2',
   entranceWeight: 1,
   exitWeight: 1,
-  alignment: 'cross-inlane',
+  flipper: 'auto',
+  ballState: 'inlane',
   ramp: false,
   entranceOffset: 0,
   leadIn: 0,
@@ -343,7 +357,8 @@ export function updateShot(
       | 'entranceWidth'
       | 'exitWidth'
       | 'continuity'
-      | 'alignment'
+      | 'flipper'
+      | 'ballState'
       | 'entranceWeight'
       | 'exitWeight'
       | 'entranceOffset'

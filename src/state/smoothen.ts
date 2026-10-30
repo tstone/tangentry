@@ -89,7 +89,7 @@ export function roughness(shot: Shot, analysis: ShotAnalysis): number {
   for (const f of analysis.flippers) {
     for (const [state, s] of Object.entries(f.states)) {
       if (!s) continue
-      cost += runCost(s.lane) * (`${f.approach}-${state}` === lane.alignedTo ? ALIGNED_WEIGHT : 1)
+      cost += runCost(s.lane) * (`${f.key}-${state}` === lane.alignedTo ? ALIGNED_WEIGHT : 1)
     }
   }
   return cost

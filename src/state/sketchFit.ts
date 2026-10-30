@@ -17,6 +17,7 @@ import {
   alignedSolution,
   analyze,
   laneOutlines,
+  shotAlignment,
   shotAnalyses,
   solveFlippers,
   type Feeder,
@@ -640,8 +641,9 @@ export async function fitSketch(
     // The ball comes in at whichever end it can reach heading most nearly
     // the way the stroke sets off from there.
     const ends = [even, [...even].reverse()].flatMap((line, i) => {
-      const solved = solve(snapPoint(line[0]))
-      const aligned = alignedSolution('cross-inlane', solved)
+      const entrance = snapPoint(line[0])
+      const solved = solve(entrance)
+      const aligned = alignedSolution(shotAlignment(shotDefaults(entrance)), solved)
       if (!aligned) return []
       const v = unit(aligned.solution.arrivalVelocity)
       const along = startDirection(line)

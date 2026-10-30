@@ -1,6 +1,14 @@
 import { createStore } from 'solid-js/store'
 import { inlanes } from './inlanes'
-import { coilTorque, flipperInertia, flipperProfile, unloadedStrokeTime, type CoilId, type FlipperProfileId } from '../physics/drive'
+import {
+  coilTorque,
+  flipperInertia,
+  flipperProfile,
+  unloadedStrokeTime,
+  type CoilId,
+  type FlipperProfile,
+  type FlipperProfileId,
+} from '../physics/drive'
 
 // How the horizontal spacing of the flipper pair is specified.
 export type SpacingMode = 'pivots' | 'tips'
@@ -49,14 +57,29 @@ const [flippers, setFlippers] = createStore<Flippers>({
 /** Dimensions and mass of the chosen stock flipper. */
 export const profile = () => flipperProfile(flippers.profile)
 
+// The outline the ball rides on.
+export type FlipperShape = {
+  // Radii of the rubber's outer surface, where the ball makes contact.
+  baseRadius: number
+  tipRadius: number
+  // Pivot center to tip center.
+  length: number
+}
+
+export const flipperShape = (p: FlipperProfile): FlipperShape => ({
+  baseRadius: p.baseRadius + p.rubberThickness,
+  tipRadius: p.tipRadius + p.rubberThickness,
+  length: Math.max(0, p.length - p.baseRadius - p.tipRadius),
+})
+
 /** Pivot center to tip center. */
-export const centerDistance = () => Math.max(0, profile().length - profile().baseRadius - profile().tipRadius)
+export const centerDistance = () => flipperShape(profile()).length
 
 /** Radius of the rubber's outer surface around the base, where the ball makes contact. */
-export const contactBaseRadius = () => profile().baseRadius + profile().rubberThickness
+export const contactBaseRadius = () => flipperShape(profile()).baseRadius
 
 /** Radius of the rubber's outer surface around the tip, where the ball makes contact. */
-export const contactTipRadius = () => profile().tipRadius + profile().rubberThickness
+export const contactTipRadius = () => flipperShape(profile()).tipRadius
 
 /** Resistance of the flipper, plunger and linkage to turning, g·in². */
 export const inertia = () => flipperInertia(profile())

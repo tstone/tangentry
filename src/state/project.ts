@@ -9,12 +9,21 @@ import {
   DEFAULT_HORSESHOE,
   replaceShots,
   shots,
-  type LaneAlignment,
+  type BallState,
+  type Entrance,
+  type FlipperKey,
   type OpenSpan,
   type Shot,
   type WallMount,
 } from './shots'
 import { replaceReserved, reserved, type ReservedArea } from './reserved'
+import {
+  DEFAULT_ENTRANCE_SPEED,
+  extraFlipperKey,
+  extraFlippers,
+  replaceExtraFlippers,
+  type ExtraFlipper,
+} from './extraFlippers'
 import { COILS, FLIPPER_PROFILES } from '../physics/drive'
 import { MOUNT_KINDS, WALL_MATERIALS } from '../physics/wall'
 
@@ -38,6 +47,8 @@ export type ProjectFile = {
   shots: (Omit<Shot, 'funnelLength'> & { funnelLength: number | null })[]
   // Missing from files saved before reserved areas existed.
   reserved?: ReservedArea[]
+  // Missing from files saved before flippers could be added.
+  extraFlippers?: ExtraFlipper[]
 }
 
 // Deep copy of a store's contents, free of Solid's proxies.
@@ -57,6 +68,7 @@ export function exportProject(): ProjectFile {
       funnelLength: Number.isFinite(shot.funnelLength) ? shot.funnelLength : null,
     })),
     reserved: plain(reserved),
+    extraFlippers: plain(extraFlippers),
   }
 }
 
@@ -101,11 +113,51 @@ const point = (input: unknown, path: string) => {
   return { x: number(p.x, `${path}.x`), y: number(p.y, `${path}.y`) }
 }
 
-const ALIGNMENTS: LaneAlignment[] = ['cross-inlane', 'cross-cradle', 'backhand-inlane', 'backhand-cradle']
 const ids = <T extends { id: string }>(list: T[]): T['id'][] => list.map((item) => item.id)
 
-function readShot(input: unknown, path: string): Shot {
+const BALL_STATES: BallState[] = ['inlane', 'cradle']
+const EXTRA_FLIPPER = /^extra\d+$/
+
+/**
+ * The flipper a shot is made off and how the ball arrives on it. Files saved
+ * before shots had a target flipper give an alignment instead, as
+ * `${approach}-${ballState}` or `${extraFlipper}-${ballState}`; a backhand
+ * comes off the main flipper on the entrance's side of `centerLine`.
+ */
+function readTarget(s: Json, entrance: Entrance, centerLine: number, path: string) {
+  if (s.flipper === undefined) {
+    const [key, state] = (typeof s.alignment === 'string' ? s.alignment : '').split('-')
+    const ballState = oneOf(state, BALL_STATES, `${path}.alignment`)
+    if (key === 'cross') return { flipper: 'auto' as const, ballState }
+    if (key === 'backhand') return { flipper: entrance.x < centerLine ? ('left' as const) : ('right' as const), ballState }
+    if (EXTRA_FLIPPER.test(key)) return { flipper: key as FlipperKey, ballState: 'inlane' as const }
+    throw new Error(`${path}.alignment isn't a ball path.`)
+  }
+  const flipper =
+    typeof s.flipper === 'string' && EXTRA_FLIPPER.test(s.flipper)
+      ? (s.flipper as FlipperKey)
+      : oneOf(s.flipper, ['auto', 'left', 'right'] as const, `${path}.flipper`)
+  return { flipper, ballState: oneOf(s.ballState, BALL_STATES, `${path}.ballState`) }
+}
+
+function readExtraFlipper(input: unknown, path: string): ExtraFlipper {
+  const f = object(input, path)
+  const id = number(f.id, `${path}.id`)
+  return {
+    id,
+    name: typeof f.name === 'string' ? f.name : `Extra Flipper ${id}`,
+    pivot: point(f.pivot, `${path}.pivot`),
+    side: oneOf(f.side, ['left', 'right'] as const, `${path}.side`),
+    profile: oneOf(f.profile, ids(FLIPPER_PROFILES), `${path}.profile`),
+    restAngle: number(f.restAngle, `${path}.restAngle`),
+    // Missing from files saved while extra flippers were fired from rest.
+    entranceSpeed: f.entranceSpeed === undefined ? DEFAULT_ENTRANCE_SPEED : number(f.entranceSpeed, `${path}.entranceSpeed`),
+  }
+}
+
+function readShot(input: unknown, path: string, centerLine: number): Shot {
   const s = object(input, path)
+  const entrance = point(s.entrance, `${path}.entrance`)
   const mounts = object(s.mounts, `${path}.mounts`)
   const readMounts = (side: 'left' | 'right'): WallMount[] => {
     const list = mounts[side]
@@ -130,14 +182,14 @@ function readShot(input: unknown, path: string): Shot {
   return {
     id: number(s.id, `${path}.id`),
     name: typeof s.name === 'string' ? s.name : `Shot ${s.id}`,
-    entrance: point(s.entrance, `${path}.entrance`),
+    entrance,
     entranceWidth: number(s.entranceWidth, `${path}.entranceWidth`),
     exitWidth: number(s.exitWidth, `${path}.exitWidth`),
     exit: { ...point(s.exit, `${path}.exit`), angle: number(object(s.exit, `${path}.exit`).angle, `${path}.exit.angle`) },
     continuity: oneOf(s.continuity, ['g1', 'g2'] as const, `${path}.continuity`),
     entranceWeight: number(s.entranceWeight, `${path}.entranceWeight`),
     exitWeight: number(s.exitWeight, `${path}.exitWeight`),
-    alignment: oneOf(s.alignment, ALIGNMENTS, `${path}.alignment`),
+    ...readTarget(s, entrance, centerLine, path),
     entranceOffset: number(s.entranceOffset, `${path}.entranceOffset`),
     leadIn: number(s.leadIn, `${path}.leadIn`),
     funnelLength: s.funnelLength ?? Infinity,
@@ -213,36 +265,45 @@ export function importProject(json: string) {
     throw new Error(`This file is from a newer version of Tangentry (format ${version}); this one reads up to ${PROJECT_VERSION}.`)
   }
 
+  // Files saved before profiles gave the standard flipper's dimensions.
+  const nextFlippers = section({ profile: 'modern-standard', ...object(file.flippers, 'flippers') }, flippers, 'flippers', {
+    alignment: ['top', 'centered', 'flopped'],
+    spacingMode: ['pivots', 'tips'],
+    profile: ids(FLIPPER_PROFILES),
+    coil: ids(COILS),
+  })
   const next = {
     playfield: section(file.playfield, playfield, 'playfield'),
-    // Files saved before profiles gave the standard flipper's dimensions.
-    flippers: section({ profile: 'modern-standard', ...object(file.flippers, 'flippers') }, flippers, 'flippers', {
-      alignment: ['top', 'centered', 'flopped'],
-      spacingMode: ['pivots', 'tips'],
-      profile: ids(FLIPPER_PROFILES),
-      coil: ids(COILS),
-    }),
+    flippers: nextFlippers,
     inlanes: section(file.inlanes, inlanes, 'inlanes'),
     ball: section(file.ball, ball, 'ball'),
     walls: section(file.walls, walls, 'walls', { material: ids(WALL_MATERIALS) }),
     shots: (() => {
       if (!Array.isArray(file.shots)) throw new Error('shots should be a list.')
-      return file.shots.map((s, i) => readShot(s, `shots[${i}]`))
+      return file.shots.map((s, i) => readShot(s, `shots[${i}]`, nextFlippers.centerLine))
     })(),
     reserved: (() => {
       if (file.reserved === undefined) return []
       if (!Array.isArray(file.reserved)) throw new Error('reserved should be a list.')
       return file.reserved.map((r, i) => readReserved(r, `reserved[${i}]`))
     })(),
+    extraFlippers: (() => {
+      if (file.extraFlippers === undefined) return []
+      if (!Array.isArray(file.extraFlippers)) throw new Error('extraFlippers should be a list.')
+      return file.extraFlippers.map((f, i) => readExtraFlipper(f, `extraFlippers[${i}]`))
+    })(),
   }
 
-  // A join or feed only holds if both lanes made it into the file.
+  // A join or feed only holds if both lanes made it into the file, and a
+  // shot off an extra flipper only if that flipper did.
   const present = new Set(next.shots.map((s) => s.id))
   if (present.size !== next.shots.length) throw new Error('Two shots share an id.')
+  const flipperKeys = new Set<string>(next.extraFlippers.map((f) => extraFlipperKey(f.id)))
   const shotList = next.shots.map((s) => ({
     ...s,
     link: s.link !== null && present.has(s.link) ? s.link : null,
     feed: s.feed !== null && present.has(s.feed) ? s.feed : null,
+    flipper: s.flipper.startsWith('extra') && !flipperKeys.has(s.flipper) ? ('auto' as const) : s.flipper,
   }))
 
   batch(() => {
@@ -251,6 +312,7 @@ export function importProject(json: string) {
     setInlanes(next.inlanes)
     setBall(next.ball)
     setWalls(next.walls)
+    replaceExtraFlippers(next.extraFlippers)
     replaceShots(shotList)
     replaceReserved(next.reserved)
   })
@@ -274,6 +336,7 @@ export function resetProject(parts: ResetParts) {
       setInlanes(plain(DEFAULT_PROJECT.inlanes))
       setBall(plain(DEFAULT_PROJECT.ball))
       setWalls(plain(DEFAULT_PROJECT.walls))
+      replaceExtraFlippers([])
       clearPlayfieldImage()
     }
     if (parts.reserved) replaceReserved([])

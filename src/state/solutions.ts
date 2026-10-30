@@ -1,7 +1,8 @@
 import { createMemo, createRoot, mapArray } from 'solid-js'
 import { playfield } from './playfield'
-import { centerDistance, contactBaseRadius, contactTipRadius, flippers, inertia, restAngle, torque } from './flippers'
-import { ballMass } from '../physics/drive'
+import { flipperShape, flippers, profile, restAngle, torque, type FlipperShape } from './flippers'
+import { extraFlipperKey, extraFlippers, type ExtraFlipper } from './extraFlippers'
+import { ballMass, flipperInertia, flipperProfile, type FlipperProfile } from '../physics/drive'
 import { inlanes } from './inlanes'
 import { ball } from './ball'
 import { walls } from './walls'
@@ -10,7 +11,9 @@ import {
   selectedId,
   shots,
   type Entrance,
+  type BallState,
   type Exit,
+  type FlipperKey,
   type LaneAlignment,
   type Shot,
   type WallSide,
@@ -23,7 +26,7 @@ import {
   type MountKind,
   type WallSpec,
 } from '../physics/wall'
-import { INLANE_LENGTH, computeLayout, toRadians, type Side } from './layout'
+import { INLANE_LENGTH, computeLayout, extraFlipperLayout, toRadians, type Side } from './layout'
 import { GRAVITY, rollingGravity, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
 import type { Point } from '../geometry/flipper'
 import { polygonsOverlap } from '../geometry/overlap'
@@ -42,8 +45,7 @@ import {
   type WallContact,
 } from '../geometry/lane'
 
-// How the ball arrives on the flipper before the shot.
-export type BallState = 'inlane' | 'cradle'
+export type { BallState }
 
 export const BALL_STATES: { state: BallState; label: string }[] = [
   { state: 'inlane', label: 'Down the inlane' },
@@ -96,37 +98,47 @@ export type Solution = {
 }
 
 export type FlipperSolutions = {
-  approach: Approach
+  key: FlipperKey
+  // Heading for this flipper's results.
+  label: string
+  // For the main pair, whether it's across from the entrance; null for an
+  // extra flipper.
+  approach: Approach | null
   side: Side
   pivot: Point
-  states: Record<BallState, Solution | null>
+  shape: FlipperShape
+  // Only the ways the ball can arrive on this flipper: an extra flipper's
+  // ball only rolls in, along its axis.
+  states: Partial<Record<BallState, Solution | null>>
 }
+
+export type FlipperSolver = ReturnType<typeof solverFor>
 
 /**
  * Solves shots off one flipper: how to fire it so the ball rolls through a
- * point, given as an entrance is (up from the bottom lip).
+ * point, given as an entrance is (up from the bottom lip). `restAngle` is
+ * in degrees; `baseSpeeds` are the ways the ball can arrive on it, with its
+ * speed along the flipper as it reaches the base.
  */
-export function flipperSolver(side: Side) {
-  const layout = computeLayout()
+function solverFor(
+  side: Side,
+  pivot: Point,
+  stock: FlipperProfile,
+  restAngle: number,
+  baseSpeeds: Partial<Record<BallState, number>>,
+) {
+  const states = BALL_STATES.map((s) => s.state).filter((state) => state in baseSpeeds)
   const slope = GRAVITY * Math.sin(toRadians(playfield.angle))
   const ballRadius = ball.diameter / 2
+  const shape = flipperShape(stock)
   const spec: FlipperSpec = {
-    baseRadius: contactBaseRadius(),
-    tipRadius: contactTipRadius(),
-    length: centerDistance(),
-    restAngle: toRadians(restAngle()),
+    ...shape,
+    restAngle: toRadians(restAngle),
     stroke: toRadians(flippers.strokeAngle),
     torque: torque(),
-    inertia: inertia(),
+    inertia: flipperInertia(stock),
     friction: flippers.friction,
   }
-  const baseSpeeds: Record<BallState, number> = {
-    inlane: rollingSpeed(ball.inlaneSpeed, slope, toRadians(inlanes.angle), INLANE_LENGTH),
-    // Released from a standstill.
-    cradle: 0,
-  }
-  const { pivot } = layout.flippers[side === 'left' ? 0 : 1]
-
   // The physics works in a left flipper's frame: pivot at the origin, x
   // toward the center line, y up the playfield. Right flippers are mirrored.
   const sx = side === 'left' ? 1 : -1
@@ -141,7 +153,7 @@ export function flipperSolver(side: Side) {
 
   const solve = (to: Entrance, state: BallState): Solution | null => {
     const target = { x: sx * (to.x - pivot.x), y: pivot.y - (playfield.height - to.y) }
-    const s = solveShot({ flipper: spec, ballRadius, ballMass: ballMass(ball.diameter), slope, baseSpeed: baseSpeeds[state], target, bounds })
+    const s = solveShot({ flipper: spec, ballRadius, ballMass: ballMass(ball.diameter), slope, baseSpeed: baseSpeeds[state] ?? 0, target, bounds })
     if (!s) return null
     const angle = (Math.atan2(s.velocity.y, sx * s.velocity.x) * 180) / Math.PI
     return {
@@ -164,19 +176,77 @@ export function flipperSolver(side: Side) {
     }
   }
 
-  return { pivot, solve }
+  return { side, pivot, shape, states, solve }
 }
 
-export function solveFlippers(shot: Shot): FlipperSolutions[] {
-  // Shots left of center cross from the right flipper, and vice versa.
-  const crossSide: Side = shot.entrance.x < flippers.centerLine ? 'right' : 'left'
-
-  return APPROACHES.map(({ approach }) => {
-    const side: Side = approach === 'cross' ? crossSide : crossSide === 'left' ? 'right' : 'left'
-    const { pivot, solve } = flipperSolver(side)
-    const states = { inlane: solve(shot.entrance, 'inlane'), cradle: solve(shot.entrance, 'cradle') }
-    return { approach, side, pivot, states }
+/** Solves shots off one of the main pair of flippers. */
+export function flipperSolver(side: Side) {
+  const { pivot } = computeLayout().flippers[side === 'left' ? 0 : 1]
+  const slope = GRAVITY * Math.sin(toRadians(playfield.angle))
+  return solverFor(side, pivot, profile(), restAngle(), {
+    inlane: rollingSpeed(ball.inlaneSpeed, slope, toRadians(inlanes.angle), INLANE_LENGTH),
+    // Released from a standstill.
+    cradle: 0,
   })
+}
+
+/**
+ * Solves shots off an extra flipper. The ball rolls onto it along its axis,
+ * reaching the base at the flipper's own entrance speed.
+ */
+export function extraFlipperSolver(f: ExtraFlipper) {
+  return solverFor(f.side, extraFlipperLayout(f).pivot, flipperProfile(f.profile), f.restAngle, {
+    inlane: f.entranceSpeed,
+  })
+}
+
+/** How the ball arrives on a flipper, for display: extra flippers have no inlane. */
+export const stateLabel = (key: FlipperKey, state: BallState) =>
+  key.startsWith('extra') && state === 'inlane' ? 'Rolling in' : BALL_STATES.find((s) => s.state === state)!.label
+
+/** A solver for every flipper on the playfield: the main pair, then the extras. */
+export const allFlipperSolvers = (): FlipperSolver[] => [
+  flipperSolver('left'),
+  flipperSolver('right'),
+  ...extraFlippers.map(extraFlipperSolver),
+]
+
+function solveWith(
+  solver: FlipperSolver,
+  key: FlipperKey,
+  label: string,
+  approach: Approach | null,
+  to: Entrance,
+): FlipperSolutions {
+  const { side, pivot, shape } = solver
+  const states = Object.fromEntries(solver.states.map((state) => [state, solver.solve(to, state)]))
+  return { key, label, approach, side, pivot, shape, states }
+}
+
+/** The main flipper a cross-field shot to `entrance` comes off: entrances left of center cross from the right. */
+export const crossSide = (entrance: Entrance): Side => (entrance.x < flippers.centerLine ? 'right' : 'left')
+
+/** The flipper a shot is made off, with 'auto' resolved. */
+export const targetFlipper = (shot: Shot): FlipperKey => (shot.flipper === 'auto' ? crossSide(shot.entrance) : shot.flipper)
+
+/** The ball path a shot's lane is meant to line up with. An extra flipper's ball only rolls in. */
+export const shotAlignment = (shot: Shot): LaneAlignment => {
+  const key = targetFlipper(shot)
+  return `${key}-${key.startsWith('extra') ? 'inlane' : shot.ballState}`
+}
+
+/** Every flipper's shots through a shot's entrance: the main pair's, cross-field first, then each extra flipper's. */
+export function solveFlippers(shot: Shot): FlipperSolutions[] {
+  const cross = crossSide(shot.entrance)
+
+  const main = APPROACHES.map(({ approach, label }) => {
+    const side: Side = approach === 'cross' ? cross : cross === 'left' ? 'right' : 'left'
+    return solveWith(flipperSolver(side), side, `${label} · ${side} flipper`, approach, shot.entrance)
+  })
+  const extra = extraFlippers.map((f) =>
+    solveWith(extraFlipperSolver(f), extraFlipperKey(f.id), f.name, null, shot.entrance),
+  )
+  return [...main, ...extra]
 }
 
 // Which wall each `offsetCurve` side is: 1 is to the right of travel.
@@ -236,19 +306,24 @@ export type ShotAnalysis = {
 // `backward`, as through a joined lane.
 export type TrackPart = { id: number; first: number; last: number; from: number; backward: boolean }
 
-const ALIGNMENT_ORDER: LaneAlignment[] = ['cross-inlane', 'cross-cradle', 'backhand-inlane', 'backhand-cradle']
-
 const solutionFor = (flippers: FlipperSolutions[], alignment: LaneAlignment) => {
-  const [approach, state] = alignment.split('-') as [Approach, BallState]
-  return flippers.find((f) => f.approach === approach)?.states[state] ?? null
+  const [key, state] = alignment.split('-') as [FlipperKey, BallState]
+  return flippers.find((f) => f.key === key)?.states[state] ?? null
 }
 
 /**
  * The solved ball path a lane's entrance lines up with: the chosen one, or
- * the first that exists. Null if none reaches the entrance.
+ * failing that another off the same flipper, or the first that exists, the
+ * main pair's before the extra flippers'. Null if none reaches the entrance.
  */
 export function alignedSolution(alignment: LaneAlignment, solved: FlipperSolutions[]) {
-  const alignedTo = [alignment, ...ALIGNMENT_ORDER].find((a) => solutionFor(solved, a))
+  const order = solved.flatMap((f) =>
+    BALL_STATES.filter(({ state }) => state in f.states).map(({ state }): LaneAlignment => `${f.key}-${state}`),
+  )
+  const sameFlipper = alignment.slice(0, alignment.lastIndexOf('-') + 1)
+  const alignedTo = [alignment, ...order.filter((a) => a.startsWith(sameFlipper)), ...order].find((a) =>
+    solutionFor(solved, a),
+  )
   return alignedTo ? { alignedTo, solution: solutionFor(solved, alignedTo)! } : null
 }
 
@@ -305,7 +380,7 @@ export function laneExit(lane: Lane) {
  * `from`, the exit feeding it.
  */
 export function shapeLane(shot: Shot, solved: FlipperSolutions[], from: CurveSample | null = null): Lane | null {
-  const aligned = from ? null : alignedSolution(shot.alignment, solved)
+  const aligned = from ? null : alignedSolution(shotAlignment(shot), solved)
   if (!from && !aligned) return null
   const entrance = { x: shot.entrance.x, y: playfield.height - shot.entrance.y }
   const exit = { x: shot.exit.x, y: playfield.height - shot.exit.y }
@@ -542,7 +617,7 @@ function runLanes(
           lane: runLane(center, widths, ballRadius, s.arrival, s.arrivalVelocity, gravity, response, open),
         },
       ]),
-    ) as Record<BallState, Solution | null>,
+    ) as FlipperSolutions['states'],
   }))
 
   return { id: shot.id, flippers, lane, parts }

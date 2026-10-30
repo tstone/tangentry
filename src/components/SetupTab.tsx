@@ -1,4 +1,5 @@
-import { Show } from 'solid-js'
+import { For, Show } from 'solid-js'
+import CardName from './CardName'
 import NumberField from './NumberField'
 import SelectField from './SelectField'
 import SliderField from './SliderField'
@@ -20,6 +21,15 @@ import {
   type Alignment,
   type SpacingMode,
 } from '../state/flippers'
+import {
+  addExtraFlipper,
+  extraFlippers,
+  removeExtraFlipper,
+  updateExtraFlipper,
+  type ExtraFlipper,
+} from '../state/extraFlippers'
+import { hoveredFlipper } from '../state/view'
+import { flipperHoverHandlers } from './ExtraFlippers'
 import { inlanes, setInlanes } from '../state/inlanes'
 import { ball, setBall } from '../state/ball'
 import { walls, setWalls } from '../state/walls'
@@ -147,6 +157,109 @@ function PlayfieldImageSection() {
           Edges are measured from the playfield's left edge and bottom lip. The arrows and arrow keys step 0.01".
         </p>
       </Show>
+    </section>
+  )
+}
+
+const SIDE_OPTIONS: { label: string; value: ExtraFlipper['side'] }[] = [
+  { label: 'Left (points right)', value: 'left' },
+  { label: 'Right (points left)', value: 'right' },
+]
+
+function ExtraFlipperCard(props: { flipper: ExtraFlipper }) {
+  const f = () => props.flipper
+  const update = (changes: Partial<Omit<ExtraFlipper, 'id'>>) => updateExtraFlipper(f().id, changes)
+  return (
+    <div
+      class="wall-mount extra-flipper-card"
+      classList={{ 'is-hovered': hoveredFlipper() === f().id }}
+      {...flipperHoverHandlers(f().id)}
+    >
+      <div class="wall-mount-header">
+        <CardName name={f().name} selected onSelect={() => {}} onRename={(name) => update({ name })} />
+        <button
+          type="button"
+          class="icon-button"
+          aria-label={`Remove ${f().name}`}
+          title="Remove flipper"
+          onClick={() => {
+            log(`Removed ${f().name}.`)
+            removeExtraFlipper(f().id)
+          }}
+        >
+          −
+        </button>
+      </div>
+      <SelectField label="Mounted" options={SIDE_OPTIONS} value={f().side} onChange={(side) => update({ side })} />
+      <SelectField
+        label="Profile"
+        options={PROFILE_OPTIONS}
+        value={f().profile}
+        onChange={(profile) => update({ profile })}
+      />
+      <NumberField
+        label="Rest angle"
+        unit="°"
+        min={-60}
+        max={90}
+        step={1}
+        value={f().restAngle}
+        onChange={(restAngle) => update({ restAngle })}
+      />
+      <NumberField
+        label="Entrance speed"
+        unit="in/s"
+        min={0}
+        max={500}
+        step={1}
+        value={f().entranceSpeed}
+        onChange={(entranceSpeed) => update({ entranceSpeed })}
+      />
+      <div class="field-pair">
+        <NumberField
+          label="Pivot X"
+          unit="in"
+          min={0}
+          max={playfield.width}
+          step={0.125}
+          value={f().pivot.x}
+          onChange={(x) => update({ pivot: { ...f().pivot, x } })}
+        />
+        <NumberField
+          label="Pivot Y"
+          unit="in"
+          min={0}
+          max={playfield.height}
+          step={0.125}
+          value={f().pivot.y}
+          onChange={(y) => update({ pivot: { ...f().pivot, y } })}
+        />
+      </div>
+    </div>
+  )
+}
+
+/** Flippers beyond the main pair, each placed anywhere on the playfield. */
+function ExtraFlippersSection() {
+  return (
+    <section class="sidebar-section">
+      <h2 class="sidebar-heading">Extra Flippers</h2>
+      <For each={extraFlippers}>{(f) => <ExtraFlipperCard flipper={f} />}</For>
+      <button
+        type="button"
+        class="wall-mount-add"
+        onClick={() => {
+          addExtraFlipper()
+          log(`Added ${extraFlippers.at(-1)?.name ?? 'a flipper'}.`)
+        }}
+      >
+        + Add flipper
+      </button>
+      <p class="field-note">
+        Drag a flipper's pivot on the playfield to move it. Rest angle is the center line's, below horizontal. The ball
+        rolls onto the flipper down its axis, reaching the base at the entrance speed. Extra flippers share the stroke,
+        coil and rubber friction above.
+      </p>
     </section>
   )
 }
@@ -294,6 +407,8 @@ export default function SetupTab() {
         />
         <p class="field-note">Unloaded stroke: {Math.round(unloadedStrokeMs())} ms</p>
       </section>
+
+      <ExtraFlippersSection />
 
       <section class="sidebar-section">
         <h2 class="sidebar-heading">Ball</h2>

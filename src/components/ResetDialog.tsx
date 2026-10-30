@@ -6,7 +6,7 @@ import { resetProject, type ResetParts } from '../state/project'
 import { log } from '../state/log'
 
 const PARTS: { part: keyof ResetParts; label: string; note: string }[] = [
-  { part: 'setup', label: 'Setup', note: 'Playfield, flippers, inlanes, ball and walls go back to their defaults. Removes the playfield image.' },
+  { part: 'setup', label: 'Setup', note: 'Playfield, flippers, inlanes, ball and walls go back to their defaults. Removes extra flippers and the playfield image.' },
   { part: 'reserved', label: 'Custom mechs', note: 'Removes every custom mech.' },
   { part: 'shots', label: 'Shots', note: 'Removes every shot, including the example the app starts with.' },
 ]

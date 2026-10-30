@@ -1,4 +1,4 @@
-import { For, Show } from 'solid-js'
+import { For, Show, batch } from 'solid-js'
 import NumberField from './NumberField'
 import CardName from './CardName'
 import SelectField from './SelectField'
@@ -29,19 +29,27 @@ import {
   shots,
   unlinkShot,
   updateShot,
+  type BallState,
+  type Entrance,
+  type FlipperKey,
   type LaneAlignment,
+  type TargetFlipper,
   type LaneEnd,
   type Shot,
   type WallSide,
 } from '../state/shots'
 import {
-  APPROACHES,
+  crossSide,
+  shotAlignment,
+  targetFlipper,
   BALL_STATES,
   WALL_SIDES,
   laneCrossings,
   laneOutlines,
   selectedAnalysis,
+  stateLabel,
 } from '../state/solutions'
+import { extraFlipperKey, extraFlippers } from '../state/extraFlippers'
 import type { Continuity } from '../geometry/lane'
 import { MOUNT_KINDS, type MountKind } from '../physics/wall'
 import { suggestMounts } from '../state/mountSuggestions'
@@ -55,12 +63,18 @@ const CONTINUITY_OPTIONS: { label: string; value: Continuity }[] = [
   { label: 'G1 (tangent arcs)', value: 'g1' },
 ]
 
-const ALIGNMENT_OPTIONS: { label: string; value: LaneAlignment }[] = APPROACHES.flatMap(({ approach, label }) =>
-  BALL_STATES.map((state) => ({
-    label: `${label} · ${state.label.toLowerCase()}`,
-    value: `${approach}-${state.state}` as LaneAlignment,
-  })),
-)
+/** Every flipper a shot can be made off; automatic names the one it picks for `entrance`. */
+const flipperOptions = (entrance: Entrance): { label: string; value: TargetFlipper }[] => [
+  { label: `Automatic (cross-field, ${crossSide(entrance)})`, value: 'auto' },
+  { label: 'Left flipper', value: 'left' },
+  { label: 'Right flipper', value: 'right' },
+  ...extraFlippers.map((f) => ({ label: f.name, value: extraFlipperKey(f.id) })),
+]
+
+const BALL_STATE_OPTIONS: { label: string; value: BallState }[] = BALL_STATES.map(({ state, label }) => ({
+  label,
+  value: state,
+}))
 
 const MOUNT_OPTIONS: { label: string; value: MountKind }[] = MOUNT_KINDS.map((k) => ({ label: k.label, value: k.id }))
 
@@ -71,7 +85,11 @@ const formatSigned = (inches: number) => (inches > 0 ? `+${formatInches(inches)}
 
 function LaneNotes(props: { shot: Shot }) {
   const lane = () => selectedAnalysis()?.lane ?? null
-  const label = (alignment: LaneAlignment) => ALIGNMENT_OPTIONS.find((o) => o.value === alignment)!.label
+  const label = (alignment: LaneAlignment) => {
+    const [key, state] = alignment.split('-') as [FlipperKey, BallState]
+    const flipper = selectedAnalysis()?.flippers.find((f) => f.key === key)
+    return `${flipper?.label ?? key} · ${stateLabel(key, state).toLowerCase()}`
+  }
   return (
     <Show
       when={lane()}
@@ -80,7 +98,7 @@ function LaneNotes(props: { shot: Shot }) {
       {(l) => (
         <>
           {/* Null for a fed lane, which has no alignment. */}
-          <Show when={l().alignedTo !== props.shot.alignment && l().alignedTo}>
+          <Show when={l().alignedTo !== shotAlignment(props.shot) && l().alignedTo}>
             {(alignedTo) => (
               <p class="shot-solution-none">That shot has no solution; lined up with {label(alignedTo())} instead.</p>
             )}
@@ -260,31 +278,50 @@ function WallMounts(props: { shot: Shot; side: WallSide; label: string }) {
   )
 }
 
-// Lanes feeding this one are chosen as `feed-${id}`.
-type FeedChoice = 'flippers' | `feed-${number}`
+// A flipper to shoot from, or a lane feeding this one, chosen as `feed-${id}`.
+type OriginChoice = TargetFlipper | `feed-${number}`
 
-/** Whether the ball is shot into the lane off the flippers or comes out of another lane's exit. */
-function FeedField(props: { shot: Shot }) {
+/**
+ * Where the ball comes from: shot off a flipper, which the lane's entrance
+ * lines up with, or out of another lane's exit.
+ */
+function OriginField(props: { shot: Shot }) {
   const chain = () => feedChain(props.shot)
-  const options = () => [
-    { label: 'The flippers', value: 'flippers' as FeedChoice },
+  const options = (): { label: string; value: OriginChoice }[] => [
+    ...flipperOptions(props.shot.entrance),
     // Not from a lane this one feeds, which would loop.
     ...shots
       .filter((s) => s.id !== props.shot.id && !feedChain(s).some((c) => c.id === props.shot.id))
-      .map((s) => ({ label: `${s.name}'s exit`, value: `feed-${s.id}` as FeedChoice })),
+      .map((s) => ({ label: `${s.name}'s exit`, value: `feed-${s.id}` as OriginChoice })),
   ]
-  const value = (): FeedChoice => (chain().length > 0 ? `feed-${props.shot.feed!}` : 'flippers')
+  const value = (): OriginChoice => (chain().length > 0 ? `feed-${props.shot.feed!}` : props.shot.flipper)
   return (
     <>
       <SelectField
-        label="Ball comes from"
+        label="Origin"
         options={options()}
         value={value()}
         onChange={(choice) => {
           if (choice === value()) return
-          setFeed(props.shot.id, choice === 'flippers' ? null : Number(choice.slice('feed-'.length)))
+          if (choice.startsWith('feed-')) {
+            setFeed(props.shot.id, Number(choice.slice('feed-'.length)))
+            return
+          }
+          batch(() => {
+            if (props.shot.feed !== null) setFeed(props.shot.id, null)
+            updateShot(props.shot.id, { flipper: choice as TargetFlipper })
+          })
         }}
       />
+      {/* An extra flipper's ball only rolls in. */}
+      <Show when={chain().length === 0 && !targetFlipper(props.shot).startsWith('extra')}>
+        <SelectField
+          label="Ball arrives"
+          options={BALL_STATE_OPTIONS}
+          value={props.shot.ballState}
+          onChange={(ballState) => updateShot(props.shot.id, { ballState })}
+        />
+      </Show>
       <Show when={chain().length > 0}>
         <p class="field-note">
           The ball leaves {chain().at(-1)!.name}'s exit and crosses open playfield into this lane, which starts out
@@ -436,7 +473,7 @@ function ShotCard(props: { shot: Shot }) {
             onChange={(y) => setEntrance(props.shot.id, { y })}
           />
         </div>
-        <FeedField shot={props.shot} />
+        <OriginField shot={props.shot} />
         <NumberField
           label="Width"
           unit="in"
@@ -548,15 +585,6 @@ function ShotCard(props: { shot: Shot }) {
           value={props.shot.continuity}
           onChange={(continuity) => updateShot(props.shot.id, { continuity })}
         />
-        {/* A fed lane lines up with the exit feeding it instead. */}
-        <Show when={feedChain(props.shot).length === 0}>
-          <SelectField
-            label="Entrance lined up with"
-            options={ALIGNMENT_OPTIONS}
-            value={props.shot.alignment}
-            onChange={(alignment) => updateShot(props.shot.id, { alignment })}
-          />
-        </Show>
         <NumberField
           label="Entrance weight"
           unit="×"
