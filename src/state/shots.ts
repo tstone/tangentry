@@ -80,19 +80,17 @@ const defaultMounts = (): WallMount[] => [
   { id: nextMountId++, kind: 'spade', at: 0.95 },
 ]
 
-type NewShot = Partial<Pick<Shot, 'name' | 'entrance' | 'exit'>>
+type NewShot = Partial<Omit<Shot, 'id' | 'via' | 'mounts'>>
 
 export function addShot(options: NewShot = {}) {
   const id = nextId++
   // Start somewhere in the upper playfield; the user will drag it into place.
   const entrance = options.entrance ?? { x: playfield.width / 2, y: playfield.height * 0.6 }
   setShots(shots.length, {
-    id,
-    name: options.name ?? `Shot ${id}`,
-    entrance,
+    name: `Shot ${id}`,
     entranceWidth: 2.5,
     exitWidth: 2.25,
-    exit: options.exit ?? { x: entrance.x, y: entrance.y + 6, angle: 90 },
+    exit: { x: entrance.x, y: entrance.y + 6, angle: 90 },
     continuity: 'g2',
     entranceWeight: 1,
     exitWeight: 1,
@@ -100,18 +98,23 @@ export function addShot(options: NewShot = {}) {
     entranceOffset: 0,
     leadIn: 0,
     funnelLength: Infinity,
+    ...options,
+    id,
+    entrance,
     via: [],
     mounts: { left: defaultMounts(), right: defaultMounts() },
   })
   setSelectedId(id)
 }
 
-// Start with a left orbit so there's something to look at: a lane up the
-// left side of the playfield, fed by the right flipper.
+// Start with a shot so there's something to look at.
 addShot({
-  name: 'Left orbit',
-  entrance: { x: 3, y: 24 },
-  exit: { x: 2.75, y: 36, angle: 90 },
+  entrance: { x: 17.1875, y: 28.5 },
+  entranceWidth: 2.75,
+  exit: { x: 9.375, y: 43.1875, angle: -179 },
+  exitWidth: 2,
+  exitWeight: 1.15,
+  entranceOffset: 0.40625,
 })
 
 export function removeShot(id: number) {
