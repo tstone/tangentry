@@ -170,6 +170,33 @@ export function laneCenterLine(
   return withLength([...straight, ...bend])
 }
 
+// Spacing of samples around a horseshoe turn, inches.
+const TURN_SPACING = 0.05
+
+/**
+ * The curve carried on around a circular turn of `radius` from where it
+ * ends, through `sweep` radians: positive turns left (counter-clockwise as
+ * seen on screen), negative right.
+ */
+export function appendTurn(curve: CurveSample[], radius: number, sweep: number): CurveSample[] {
+  const end = curve[curve.length - 1]
+  if (!end || radius <= 0 || sweep === 0) return curve
+  const angle = Math.abs(sweep)
+  // `normal` is to the right of travel; a left turn bends the other way.
+  const n = scale(normal(end.t), sweep > 0 ? -1 : 1)
+  const count = Math.max(8, Math.ceil((angle * radius) / TURN_SPACING))
+  const turn: CurveSample[] = []
+  for (let i = 1; i <= count; i++) {
+    const turned = (angle * i) / count
+    turn.push({
+      p: add(end.p, add(scale(end.t, radius * Math.sin(turned)), scale(n, radius * (1 - Math.cos(turned))))),
+      t: add(scale(end.t, Math.cos(turned)), scale(n, Math.sin(turned))),
+      s: end.s + radius * turned,
+    })
+  }
+  return [...curve, ...turn]
+}
+
 /**
  * Tightest bend along a curve: its radius and distance along the curve.
  * Radius is Infinity for a straight curve.
@@ -191,12 +218,14 @@ export function tightestBend(curve: CurveSample[]) {
 // Wall-to-wall width at each end of a lane. The lane narrows (or widens)
 // from the entrance width to the exit width over `funnelLength` from the
 // entrance, easing in and out so the walls don't kink, and keeps the exit
-// width beyond that. Infinity spreads it over the whole lane.
-export type LaneWidth = { entrance: number; exit: number; funnelLength: number }
+// width beyond that. Infinity spreads it over the whole lane, or over the
+// first `length` of it when given, as for a lane that carries on past its
+// exit around a horseshoe.
+export type LaneWidth = { entrance: number; exit: number; funnelLength: number; length?: number }
 
 /** Width of the lane at each sample along its center line. */
 export const laneWidths = (curve: CurveSample[], width: LaneWidth) => {
-  const total = curve[curve.length - 1]?.s || 1
+  const total = width.length || curve[curve.length - 1]?.s || 1
   return curve.map((q) => {
     const length = Math.min(width.funnelLength, total)
     const t = length > 0 ? Math.min(1, q.s / length) : 1

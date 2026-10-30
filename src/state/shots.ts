@@ -63,7 +63,26 @@ export type Shot = {
   // an orbit is: a ball shot into either comes out of the other's entrance.
   // Joined exits share a point and width and point opposite ways.
   link: number | null
+  // What the lane does past its exit when it isn't joined to another.
+  end: LaneEnd
+  horseshoe: Horseshoe
 }
+
+// Open lanes end at the exit; a horseshoe carries the lane on around a
+// circular turn from there, keeping the exit width.
+export type LaneEnd = 'open' | 'horseshoe'
+
+export type Horseshoe = {
+  // How far around the turn goes, degrees: positive turns left
+  // (counter-clockwise on screen), negative right. 180 heads back the way
+  // the lane came.
+  rotation: number
+  // Of the turn's center line, inches.
+  radius: number
+}
+
+export const HORSESHOE_ROTATION = { min: -270, max: 270 }
+export const HORSESHOE_RADIUS = { min: 1, max: 12 }
 
 export type ViaPoint = Entrance & { id: number }
 
@@ -77,6 +96,8 @@ export const selectedShot = () => shots.find((shot) => shot.id === selectedId())
 let nextId = 1
 let nextMountId = 1
 
+export const DEFAULT_HORSESHOE: Horseshoe = { rotation: 180, radius: 2.5 }
+
 // Spade bolts near each end and a spike between.
 const defaultMounts = (): WallMount[] => [
   { id: nextMountId++, kind: 'spade', at: 0.05 },
@@ -84,7 +105,7 @@ const defaultMounts = (): WallMount[] => [
   { id: nextMountId++, kind: 'spade', at: 0.95 },
 ]
 
-type NewShot = Partial<Omit<Shot, 'id' | 'via' | 'mounts' | 'link'>>
+type NewShot = Partial<Omit<Shot, 'id' | 'via' | 'mounts' | 'link' | 'end' | 'horseshoe'>>
 
 export function addShot(options: NewShot = {}) {
   const id = nextId++
@@ -108,6 +129,8 @@ export function addShot(options: NewShot = {}) {
     via: [],
     mounts: { left: defaultMounts(), right: defaultMounts() },
     link: null,
+    end: 'open',
+    horseshoe: { ...DEFAULT_HORSESHOE },
   })
   setSelectedId(id)
 }
@@ -170,9 +193,45 @@ export function linkShots(id: number, to: number) {
       exit: { x: target.exit.x, y: target.exit.y, angle: opposite(target.exit.angle) },
       exitWidth: target.exitWidth,
       link: to,
+      end: 'open',
     })
-    setShots((shot) => shot.id === to, 'link', id)
+    setShots((shot) => shot.id === to, { link: id, end: 'open' })
   })
+}
+
+/** End a lane open or in a horseshoe, separating it from any lane joined to it. */
+export function setLaneEnd(id: number, end: LaneEnd) {
+  batch(() => {
+    unlinkShot(id)
+    setShots((shot) => shot.id === id, 'end', end)
+  })
+}
+
+export function setHorseshoe(id: number, changes: Partial<Horseshoe>) {
+  setShots((shot) => shot.id === id, 'horseshoe', changes)
+}
+
+/**
+ * Offset from a shot's exit to the center of its horseshoe: a radius to
+ * the side the horseshoe turns toward.
+ */
+const horseshoeOffset = (shot: Shot) => {
+  const angle = (shot.exit.angle * Math.PI) / 180
+  // Left of the exit direction for a left turn, right for a right one.
+  const side = shot.horseshoe.rotation >= 0 ? 1 : -1
+  return { x: -Math.sin(angle) * side * shot.horseshoe.radius, y: Math.cos(angle) * side * shot.horseshoe.radius }
+}
+
+/** Center of a shot's horseshoe, in playfield coordinates. */
+export function horseshoeCenter(shot: Shot): Entrance {
+  const offset = horseshoeOffset(shot)
+  return { x: shot.exit.x + offset.x, y: shot.exit.y + offset.y }
+}
+
+/** Where a shot's exit goes to put its horseshoe's center at `center`. */
+export function exitForHorseshoe(shot: Shot, center: Entrance): Entrance {
+  const offset = horseshoeOffset(shot)
+  return { x: center.x - offset.x, y: center.y - offset.y }
 }
 
 /** Separate a shot's lane from the one it's joined to, leaving both where they are. */

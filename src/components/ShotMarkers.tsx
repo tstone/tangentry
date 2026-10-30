@@ -1,6 +1,8 @@
-import { For, createSignal } from 'solid-js'
+import { For, Show, createSignal } from 'solid-js'
 import { playfield } from '../state/playfield'
 import {
+  exitForHorseshoe,
+  horseshoeCenter,
   linkShots,
   moveVia,
   removeVia,
@@ -44,10 +46,15 @@ const snapToPlayfield = (p: Point) => ({
 // Shot whose exit a direction handle is being dragged over, to join to it.
 const [linkTarget, setLinkTarget] = createSignal<number | null>(null)
 
-/** A shot not yet joined to another whose exit is close enough to `p` to join `id`'s lane to. */
+/**
+ * A shot not yet joined to another, nor ending in a horseshoe, whose exit is
+ * close enough to `p` to join `id`'s lane to.
+ */
 const linkTargetAt = (id: number, p: Point) =>
-  shots.find((s) => s.id !== id && s.link === null && Math.hypot(s.exit.x - p.x, s.exit.y - p.y) < LINK_RADIUS)?.id ??
-  null
+  shots.find(
+    (s) =>
+      s.id !== id && s.link === null && s.end === 'open' && Math.hypot(s.exit.x - p.x, s.exit.y - p.y) < LINK_RADIUS,
+  )?.id ?? null
 
 /**
  * Draggable entrance, exit and exit direction handles for every shot.
@@ -64,6 +71,9 @@ export default function ShotMarkers() {
         {(shot) => {
           const exitAngle = () => (shot.exit.angle * Math.PI) / 180
           const exit = () => ({ x: shot.exit.x, y: playfield.height - shot.exit.y })
+          const horseshoe = () => shot.end === 'horseshoe' && shot.link === null
+          // Only open lanes can be dropped on another lane's exit to join it.
+          const joinable = () => shot.link === null && shot.end === 'open'
           // Joined to another lane, the handle sits back over this lane, so
           // the two lanes' handles make one arm through their shared exit.
           const reach = () => (shot.link === null ? 1 : -1) * DIRECTION_LENGTH * shot.exitWeight
@@ -80,7 +90,7 @@ export default function ShotMarkers() {
               event,
               (p) => {
                 setExit(shot.id, snapToPlayfield(p))
-                target = shot.link === null ? linkTargetAt(shot.id, p) : null
+                target = joinable() ? linkTargetAt(shot.id, p) : null
                 setLinkTarget(target)
               },
               () => {
@@ -88,6 +98,14 @@ export default function ShotMarkers() {
                 if (target !== null) linkShots(shot.id, target)
               },
             )
+          }
+          // A horseshoe is grabbed by its center, which carries the exit with it.
+          // Snaps the exit rather than the center, so the exit fields stay readable.
+          const dragHorseshoe = (event: PointerEvent) =>
+            grab(shot, event, (p) => setExit(shot.id, snapToPlayfield(exitForHorseshoe(shot, p))))
+          const center = () => {
+            const c = horseshoeCenter(shot)
+            return { x: c.x, y: playfield.height - c.y }
           }
           const dragDirection = (event: PointerEvent) => {
             const weight = shot.exitWeight
@@ -103,7 +121,7 @@ export default function ShotMarkers() {
                 const weight = clamp(Math.hypot(dx, dy) / DIRECTION_LENGTH, MIN_WEIGHT, MAX_WEIGHT)
                 setExit(shot.id, { angle: Math.round(degrees) })
                 updateShot(shot.id, { exitWeight: Math.round(weight * 20) / 20 })
-                target = shot.link === null ? linkTargetAt(shot.id, p) : null
+                target = joinable() ? linkTargetAt(shot.id, p) : null
                 setLinkTarget(target)
               },
               () => {
@@ -126,20 +144,36 @@ export default function ShotMarkers() {
                 y2={direction().y}
                 vector-effect="non-scaling-stroke"
               />
-              <circle
-                class="shot-handle shot-exit"
-                classList={{ 'is-link-target': linkTarget() === shot.id }}
-                cx={exit().x}
-                cy={exit().y}
-                r={HANDLE_RADIUS}
-                vector-effect="non-scaling-stroke"
-                onPointerDown={dragExit}
+              <Show
+                when={horseshoe()}
+                fallback={
+                  <circle
+                    class="shot-handle shot-exit"
+                    classList={{ 'is-link-target': linkTarget() === shot.id }}
+                    cx={exit().x}
+                    cy={exit().y}
+                    r={HANDLE_RADIUS}
+                    vector-effect="non-scaling-stroke"
+                    onPointerDown={dragExit}
+                  >
+                    <title>
+                      {shot.name} exit
+                      {joinable() ? ": drop on another lane's exit to join the lanes" : ''}
+                    </title>
+                  </circle>
+                }
               >
-                <title>
-                  {shot.name} exit
-                  {shot.link === null ? ": drop on another lane's exit to join the lanes" : ''}
-                </title>
-              </circle>
+                <circle
+                  class="shot-handle shot-exit"
+                  cx={center().x}
+                  cy={center().y}
+                  r={HANDLE_RADIUS}
+                  vector-effect="non-scaling-stroke"
+                  onPointerDown={dragHorseshoe}
+                >
+                  <title>{shot.name} horseshoe center: drag to move the exit and horseshoe</title>
+                </circle>
+              </Show>
               <circle
                 class="shot-handle shot-exit-angle"
                 cx={direction().x}
@@ -150,7 +184,7 @@ export default function ShotMarkers() {
               >
                 <title>
                   {shot.name} exit direction and weight
-                  {shot.link === null ? ": drop on another lane's exit to join the lanes" : ''}
+                  {joinable() ? ": drop on another lane's exit to join the lanes" : ''}
                 </title>
               </circle>
               <For each={shot.via}>

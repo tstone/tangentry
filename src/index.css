@@ -1012,6 +1012,45 @@ body {
   cursor: pointer;
 }
 
+.smoothen-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.smoothen-button:disabled {
+  color: var(--fg);
+  cursor: progress;
+}
+
+.spinner {
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.smoothen-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.smoothen-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.1s linear;
+}
+
 .wall-mount-add:hover {
   color: var(--fg);
   border-color: var(--fg-muted);

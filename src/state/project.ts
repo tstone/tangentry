@@ -5,7 +5,7 @@ import { inlanes, setInlanes, type Inlanes } from './inlanes'
 import { playfield, setPlayfield, type Playfield } from './playfield'
 import { walls, setWalls, type Walls } from './walls'
 import { clearPlayfieldImage } from './playfieldImage'
-import { replaceShots, shots, type LaneAlignment, type Shot, type WallMount } from './shots'
+import { DEFAULT_HORSESHOE, replaceShots, shots, type LaneAlignment, type Shot, type WallMount } from './shots'
 import { replaceReserved, reserved, type ReservedArea } from './reserved'
 import { COILS, MATERIALS } from '../physics/drive'
 import { MOUNT_KINDS, WALL_MATERIALS } from '../physics/wall'
@@ -136,6 +136,14 @@ function readShot(input: unknown, path: string): Shot {
     })),
     mounts: { left: readMounts('left'), right: readMounts('right') },
     link: s.link,
+    // Missing from files saved before lanes could end in a horseshoe.
+    end: s.end === undefined ? 'open' : oneOf(s.end, ['open', 'horseshoe'] as const, `${path}.end`),
+    horseshoe:
+      s.horseshoe === undefined
+        ? { ...DEFAULT_HORSESHOE }
+        : {
+            rotation: number(object(s.horseshoe, `${path}.horseshoe`).rotation, `${path}.horseshoe.rotation`),
+            radius: number(object(s.horseshoe, `${path}.horseshoe`).radius, `${path}.horseshoe.radius`),          },
   }
 }
 

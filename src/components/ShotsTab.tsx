@@ -6,8 +6,11 @@ import SliderField from './SliderField'
 import { playfield } from '../state/playfield'
 import { ball } from '../state/ball'
 import {
+  HORSESHOE_RADIUS,
+  HORSESHOE_ROTATION,
   addMount,
   addShot,
+  linkShots,
   moveVia,
   removeMount,
   removeVia,
@@ -17,11 +20,14 @@ import {
   selectedId,
   setEntrance,
   setExit,
+  setHorseshoe,
+  setLaneEnd,
   setSelectedId,
   shots,
   unlinkShot,
   updateShot,
   type LaneAlignment,
+  type LaneEnd,
   type Shot,
   type WallSide,
 } from '../state/shots'
@@ -227,7 +233,7 @@ function LaneNotes(props: { shot: Shot }) {
 function LaneShaping(props: { shot: Shot }) {
   // Far enough to put the ball against either wall at the mouth.
   const maxOffset = () => Math.max(0, props.shot.entranceWidth / 2 - ball.diameter / 2)
-  const laneLength = () => selectedAnalysis()?.lane?.center.at(-1)?.s ?? 0
+  const laneLength = () => selectedAnalysis()?.lane?.exitDistance ?? 0
   return (
     <>
       <SliderField
@@ -367,32 +373,135 @@ function WallMounts(props: { shot: Shot; side: WallSide; label: string }) {
   )
 }
 
+// Joined lanes are chosen as `link-${id}`.
+type LaneEndChoice = LaneEnd | `link-${number}`
+
+/** Whether the lane ends open, in a horseshoe, or joined to another lane. */
+function LaneEndField(props: { shot: Shot }) {
+  const options = () => [
+    { label: 'Open', value: 'open' as LaneEndChoice },
+    { label: 'Horseshoe', value: 'horseshoe' as LaneEndChoice },
+    ...shots
+      .filter((s) => s.id !== props.shot.id)
+      .map((s) => ({ label: `Joined to ${s.name}`, value: `link-${s.id}` as LaneEndChoice })),
+  ]
+  const value = (): LaneEndChoice => (props.shot.link === null ? props.shot.end : `link-${props.shot.link}`)
+  return (
+    <SelectField
+      label="Lane exit"
+      options={options()}
+      value={value()}
+      onChange={(choice) => {
+        if (choice === value()) return
+        if (choice.startsWith('link-')) linkShots(props.shot.id, Number(choice.slice('link-'.length)))
+        else setLaneEnd(props.shot.id, choice as LaneEnd)
+      }}
+    />
+  )
+}
+
+function HorseshoeFields(props: { shot: Shot }) {
+  return (
+    <>
+      <SliderField
+        label="Rotation"
+        min={HORSESHOE_ROTATION.min}
+        max={HORSESHOE_ROTATION.max}
+        step={5}
+        centered
+        value={props.shot.horseshoe.rotation}
+        format={(v) => formatDegrees(Math.abs(v))}
+        ends={['turns right', 'turns left']}
+        onChange={(rotation) => setHorseshoe(props.shot.id, { rotation })}
+      />
+      <SliderField
+        label="Radius"
+        min={HORSESHOE_RADIUS.min}
+        max={HORSESHOE_RADIUS.max}
+        value={props.shot.horseshoe.radius}
+        format={formatInches}
+        onChange={(radius) => setHorseshoe(props.shot.id, { radius })}
+      />
+      <p class="field-note">
+        The lane carries on from the exit around a turn at the exit width; 180° heads back the way it came. Drag the
+        horseshoe's center on the playfield to move it with the exit.
+      </p>
+    </>
+  )
+}
+
 const paths = (n: number) => `${n} ball path${n === 1 ? '' : 's'}`
 
 function Smoothen(props: { shot: Shot }) {
   const [result, setResult] = createSignal<SmoothenResult | null>(null)
+  // Lane shapes tried out of the most the search will try, while it runs.
+  const [progress, setProgress] = createSignal<{ tried: number; most: number } | null>(null)
+  const run = async () => {
+    setResult(null)
+    setProgress({ tried: 0, most: 1 })
+    try {
+      setResult(await smoothen(props.shot.id, (tried, most) => setProgress({ tried, most })))
+    } finally {
+      setProgress(null)
+    }
+  }
   return (
     <>
       <button
         type="button"
-        class="wall-mount-add"
+        class="wall-mount-add smoothen-button"
         title="Adjust the entrance offset, lead-in, weights, funnel and bend points so the ball gets through more cleanly"
-        onClick={() => setResult(smoothen(props.shot.id))}
+        disabled={progress() !== null}
+        aria-busy={progress() !== null}
+        onClick={run}
       >
-        Smoothen
+        <Show when={progress()} fallback="Smoothen">
+          <span class="spinner" aria-hidden="true" />
+          Smoothing…
+        </Show>
       </button>
+      <Show when={progress()}>
+        {(p) => (
+          <div
+            class="smoothen-progress"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={p().most}
+            aria-valuenow={p().tried}
+          >
+            <div class="smoothen-progress-bar" style={{ width: `${(100 * p().tried) / p().most}%` }} />
+          </div>
+        )}
+      </Show>
       <p class="field-note">
         <Show
-          when={result()}
-          fallback='Tries entrance offset, lead-in, weights, funnel length and moving bend points up to 2" to cut down wall hits. Leaves the ends, widths and mounts alone.'
+          when={!progress()}
+          fallback={`Tried ${progress()?.tried ?? 0} lane shapes so far. Stops early once every ball path runs smooth.`}
         >
-          {(r) => (
-            <Show when={r().changed} fallback="Couldn't find anything smoother.">
-              <Show when={r().before !== r().after} fallback={`Hits softened; ${paths(r().after)} still not smooth.`}>
-                Rough {paths(r().before)} down to {r().after}.
+          <Show
+            when={result()}
+            fallback={
+              props.shot.end === 'horseshoe' && props.shot.link === null
+                ? 'Tries entrance offset, lead-in, weights, funnel length and moving bend points up to 2" to cut down wall hits. Also slides where the lane meets the horseshoe around it, keeping its center and the way out, and tries a bend point before the exit to lead into it. Leaves the entrance, widths and mounts alone.'
+                : 'Tries entrance offset, lead-in, weights, funnel length and moving bend points up to 2" to cut down wall hits. Leaves the ends, widths and mounts alone.'
+            }
+          >
+            {(r) => (
+              <Show
+                when={r().changed}
+                fallback={
+                  r().stale
+                    ? 'The lane changed while smoothing, so nothing was applied. Try again.'
+                    : "Couldn't find anything smoother."
+                }
+              >
+                <Show when={r().before !== r().after} fallback={`Hits softened; ${paths(r().after)} still not smooth.`}>
+                  Rough {paths(r().before)} down to {r().after}.
+                </Show>
+                <Show when={r().addedVia}> Added a bend point to lead into the horseshoe.</Show>
               </Show>
-            </Show>
-          )}
+            )}
+          </Show>
         </Show>
       </p>
     </>
@@ -458,6 +567,7 @@ function ShotCard(props: { shot: Shot }) {
 
         <ViaPoints shot={props.shot} />
 
+        <LaneEndField shot={props.shot} />
         <h4 class="sidebar-heading">Exit</h4>
         <div class="field-pair">
           <NumberField
@@ -500,9 +610,17 @@ function ShotCard(props: { shot: Shot }) {
         <Show
           when={shots.find((s) => s.id === props.shot.link)}
           fallback={
-            <p class="field-note">
-              Drag the exit or its direction handle onto another lane's exit to join the two into one lane, as an orbit is.
-            </p>
+            <Show
+              when={props.shot.end === 'horseshoe'}
+              fallback={
+                <p class="field-note">
+                  Drag the exit or its direction handle onto another lane's exit to join the two into one lane, as an
+                  orbit is.
+                </p>
+              }
+            >
+              <HorseshoeFields shot={props.shot} />
+            </Show>
           }
         >
           {(partner) => (

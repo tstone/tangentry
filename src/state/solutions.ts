@@ -11,6 +11,7 @@ import { INLANE_LENGTH, computeLayout, toRadians, type Side } from './layout'
 import { GRAVITY, rollingGravity, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
 import type { Point } from '../geometry/flipper'
 import {
+  appendTurn,
   runLane,
   laneCenterLine,
   laneWidths,
@@ -175,6 +176,9 @@ export type LaneWall = {
 
 export type Lane = {
   center: CurveSample[]
+  // Distance along the center line to the exit. The center line runs on
+  // past it around a horseshoe.
+  exitDistance: number
   // Wall-to-wall width at each sample of the center line.
   widths: number[]
   walls: LaneWall[]
@@ -226,7 +230,9 @@ export function shapeLane(shot: Shot, solved: FlipperSolutions[]): Lane | null {
     x: entrance.x - normal(startDir).x * shot.entranceOffset,
     y: entrance.y - normal(startDir).y * shot.entranceOffset,
   }
-  const center = laneCenterLine(
+  const horseshoe = shot.end === 'horseshoe' && shot.link === null
+  const turn = toRadians(shot.horseshoe.rotation)
+  const toExit = laneCenterLine(
     start,
     startDir,
     exit,
@@ -237,10 +243,14 @@ export function shapeLane(shot: Shot, solved: FlipperSolutions[]): Lane | null {
     shot.leadIn,
     shot.via.map((v) => ({ x: v.x, y: playfield.height - v.y })),
   )
+  const exitDistance = toExit[toExit.length - 1].s
+  // A horseshoe carries the lane on past the exit, at the exit width.
+  const center = horseshoe ? appendTurn(toExit, shot.horseshoe.radius, turn) : toExit
   const width = {
     entrance: shot.entranceWidth,
     exit: shot.exitWidth,
     funnelLength: shot.funnelLength,
+    length: exitDistance,
   }
   const mass = ballMass(ball.diameter)
 
@@ -274,6 +284,7 @@ export function shapeLane(shot: Shot, solved: FlipperSolutions[]): Lane | null {
   })
   return {
     center,
+    exitDistance,
     widths: laneWidths(center, width),
     walls: laneWalls,
     alignedTo,
