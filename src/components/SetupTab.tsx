@@ -25,6 +25,7 @@ import { ball, setBall } from '../state/ball'
 import { walls, setWalls } from '../state/walls'
 import { COILS, MATERIALS, type CoilId, type MaterialId } from '../physics/drive'
 import { WALL_MATERIALS, type WallMaterialId } from '../physics/wall'
+import { resetProject } from '../state/project'
 
 const ALIGNMENT_OPTIONS: { label: string; value: Alignment }[] = [
   { label: 'Top edge', value: 'top' },
@@ -398,6 +399,21 @@ export default function SetupTab() {
           onChange={(spikeStiffness) => setWalls('spikeStiffness', spikeStiffness)}
         />
         <p class="field-note">How hard each mount resists the wall being pushed sideways. Estimates; tune to match real walls.</p>
+      </section>
+
+      <section class="sidebar-section">
+        <button
+          type="button"
+          class="wall-mount-add"
+          onClick={() => {
+            if (window.confirm('Reset all settings and shots to their defaults? This can’t be undone.')) resetProject()
+          }}
+        >
+          Reset to defaults
+        </button>
+        <p class="field-note">
+          Puts every setting and shot back as they start out, and removes the playfield image.
+        </p>
       </section>
     </>
   )

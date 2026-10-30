@@ -9,6 +9,7 @@ import { flipperPath } from '../geometry/flipper'
 import Annotations from './Annotations'
 import { DimensionMarkers } from './Dimensions'
 import PathColoringControl from './PathColoringControl'
+import ProjectDialog from './ProjectDialog'
 import ShotLanes, { WallMounts } from './ShotLanes'
 import ShotMarkers from './ShotMarkers'
 import ShotPaths from './ShotPaths'
@@ -187,6 +188,7 @@ export default function Preview() {
         </button>
       </div>
       <PathColoringControl />
+      <ProjectDialog />
     </div>
   )
 }

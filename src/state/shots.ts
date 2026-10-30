@@ -248,4 +248,17 @@ export function removeMount(id: number, side: WallSide, mountId: number) {
   setShots((s) => s.id === id, 'mounts', side, (list) => list.filter((m) => m.id !== mountId))
 }
 
+/** Swap in a whole new set of shots, as from an imported file, and select the first. */
+export function replaceShots(list: Shot[]) {
+  const maxId = (ids: number[]) => ids.reduce((max, id) => Math.max(max, id), 0)
+  // New shots, via points and mounts get ids clear of the imported ones.
+  nextId = maxId(list.map((s) => s.id)) + 1
+  nextViaId = maxId(list.flatMap((s) => s.via.map((v) => v.id))) + 1
+  nextMountId = maxId(list.flatMap((s) => [...s.mounts.left, ...s.mounts.right].map((m) => m.id))) + 1
+  batch(() => {
+    setShots(list)
+    setSelectedId(list[0]?.id ?? null)
+  })
+}
+
 export { shots, selectedId, setSelectedId }
