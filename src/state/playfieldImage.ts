@@ -1,4 +1,6 @@
+import { createEffect, createRoot } from 'solid-js'
 import { createStore } from 'solid-js/store'
+import { deleteFile, getFile, putFile } from './fileStore'
 import { playfield } from './playfield'
 
 // A picture of the playfield (artwork, a scan, a CAD export) traced over.
@@ -46,6 +48,7 @@ export function loadPlayfieldImage(file: File) {
     const aspect = probe.naturalWidth && probe.naturalHeight ? probe.naturalHeight / probe.naturalWidth : 1
     setPlayfieldImage({ src, name: file.name, aspect })
     fitPlayfieldImage()
+    putFile(FILE_KEY, file).catch((e) => console.warn("Couldn't save the playfield image:", e))
   }
   probe.onerror = () => URL.revokeObjectURL(src)
   probe.src = src
@@ -54,6 +57,45 @@ export function loadPlayfieldImage(file: File) {
 export function clearPlayfieldImage() {
   if (playfieldImage.src) URL.revokeObjectURL(playfieldImage.src)
   setPlayfieldImage({ src: null, name: '' })
+  deleteFile(FILE_KEY).catch((e) => console.warn("Couldn't remove the saved playfield image:", e))
+}
+
+// The image file itself goes in IndexedDB, as it's too big for localStorage;
+// where it sits is small and changes often, so that goes in localStorage.
+const FILE_KEY = 'playfieldImage'
+const STORAGE_KEY = 'tangentry.playfieldImage'
+
+type Placement = Omit<PlayfieldImage, 'src'>
+
+/**
+ * Restore the image last used in this browser, then keep it saved as it's
+ * moved or replaced. Call once at startup.
+ */
+export async function persistPlayfieldImage() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    const file = saved && (await getFile(FILE_KEY))
+    // Skip it if an image was uploaded while this was loading.
+    if (file && !playfieldImage.src) {
+      setPlayfieldImage({ ...(JSON.parse(saved) as Placement), src: URL.createObjectURL(file) })
+    }
+  } catch (e) {
+    console.warn('Ignoring the saved playfield image:', e)
+  }
+
+  // Started only now, so the empty image the app starts with doesn't
+  // overwrite the saved one before it's restored.
+  createRoot(() => {
+    createEffect(() => {
+      const { src, ...placement } = playfieldImage
+      try {
+        if (src) localStorage.setItem(STORAGE_KEY, JSON.stringify(placement))
+        else localStorage.removeItem(STORAGE_KEY)
+      } catch (e) {
+        console.warn("Couldn't save the playfield image placement:", e)
+      }
+    })
+  })
 }
 
 export { playfieldImage, setPlayfieldImage }
