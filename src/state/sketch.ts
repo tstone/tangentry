@@ -92,7 +92,10 @@ export async function finishSketch() {
       }
       // A cut lane's pieces each feed the next.
       const ids: number[] = []
-      for (const shot of fit.shots) ids.push(addShot({ ...shot, feed: ids.at(-1) ?? null }))
+      for (const shot of fit.shots) {
+        const prev = ids.at(-1)
+        ids.push(addShot({ ...shot, feed: prev === undefined ? null : { id: prev, end: 'exit' } }))
+      }
       first ??= ids[0]
       // Mounts from each shot's own hits, once the lanes feeding it are there.
       for (const id of ids) suggestMounts(id)

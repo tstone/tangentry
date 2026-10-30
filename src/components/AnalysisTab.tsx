@@ -1,11 +1,12 @@
 import { For, Show, onCleanup } from 'solid-js'
-import { feedChain, selectedShot, type Shot } from '../state/shots'
+import { feedChain, otherEnd, selectedShot, type Shot } from '../state/shots'
 import {
   BALL_STATES,
   OUTCOME_LABELS,
-  selectedSolutions,
+  selectedRuns,
   stateLabel,
   targetFlipper,
+  type EndRun,
   type Solution,
 } from '../state/solutions'
 import { isHit } from '../geometry/lane'
@@ -97,12 +98,16 @@ function SolutionDetails(props: { solution: Solution }) {
   )
 }
 
-function ShotResults(props: { shot: Shot }) {
-  // The flipper the shot is made off comes first. A fed shot's ball comes
-  // off the flipper of the first lane feeding it.
-  const target = () => targetFlipper(feedChain(props.shot)[0] ?? props.shot)
+/** The ball paths into one end of a shot's lane. */
+function ShotResults(props: { shot: Shot; run: EndRun }) {
+  // The flipper the shot is made off comes first. A fed end's ball comes
+  // off the flipper of the first lane feeding it, into its other end.
+  const target = () => {
+    const first = feedChain(props.shot, props.run.end)[0]
+    return first ? targetFlipper(first.shot, otherEnd(first.leaves)) : targetFlipper(props.shot, props.run.end)
+  }
   const ordered = () => {
-    const all = selectedSolutions()
+    const all = props.run.flippers
     return [...all.filter((f) => f.key === target()), ...all.filter((f) => f.key !== target())]
   }
   return (
@@ -117,14 +122,14 @@ function ShotResults(props: { shot: Shot }) {
             {({ state }) => {
               // A block removed while hovered never sees the mouse leave.
               onCleanup(() => {
-                if (isHovered(flipper.key, state)) setHoveredPath(null)
+                if (isHovered(props.run.end, flipper.key, state)) setHoveredPath(null)
               })
               return (
                 <div
                   class={`shot-state ${pathColor(state, flipper.states[state]).class}`}
-                  classList={{ 'is-hovered': isHovered(flipper.key, state) }}
+                  classList={{ 'is-hovered': isHovered(props.run.end, flipper.key, state) }}
                   style={pathColor(state, flipper.states[state]).style}
-                  onMouseEnter={() => setHoveredPath({ flipper: flipper.key, state })}
+                  onMouseEnter={() => setHoveredPath({ end: props.run.end, flipper: flipper.key, state })}
                   onMouseLeave={() => setHoveredPath(null)}
                 >
                   <div class="shot-state-label">{stateLabel(flipper.key, state)}</div>
@@ -132,7 +137,7 @@ function ShotResults(props: { shot: Shot }) {
                     when={flipper.states[state]}
                     fallback={
                       <p class="shot-solution-none">
-                        <Show when={flipper.blocked[state]} fallback="No fire point reaches this entrance.">
+                        <Show when={flipper.blocked[state]} fallback={`No fire point reaches this ${props.run.end}.`}>
                           {(by) => <>Blocked by {by()}.</>}
                         </Show>
                       </p>
@@ -195,7 +200,17 @@ export default function AnalysisTab() {
           {(shot) => (
             <>
               <h3 class="sidebar-heading">{shot().name}</h3>
-              <ShotResults shot={shot()} />
+              <For each={selectedRuns()}>
+                {(run) => (
+                  <>
+                    {/* A double-ended lane is shot into either end. */}
+                    <Show when={shot().end === 'double'}>
+                      <h3 class="sidebar-heading">Into the {run.end}</h3>
+                    </Show>
+                    <ShotResults shot={shot()} run={run} />
+                  </>
+                )}
+              </For>
             </>
           )}
         </Show>

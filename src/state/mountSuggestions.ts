@@ -39,15 +39,16 @@ export function suggestMounts(shotId: number) {
   const mass = ballMass(ball.diameter)
   // Walls of the other lanes, which can crowd out a spade bolt.
   const others = shotAnalyses().flatMap((a) => (a.id !== shotId && a.lane ? a.lane.walls.map((w) => w.points) : []))
-  // Hits on this lane's walls, from its own ball paths and from those of
-  // joined or fed lanes that run through it.
+  // Hits on this lane's walls, from its own ball paths into either end and
+  // from those of fed lanes that run through it.
   const hits = shotAnalyses()
-    .filter((a) => a.parts.some((p) => p.id === shotId))
-    .flatMap((a) =>
-      a.flippers.flatMap((f) =>
+    .flatMap((a) => a.runs)
+    .filter((run) => run.parts.some((p) => p.id === shotId))
+    .flatMap((run) =>
+      run.flippers.flatMap((f) =>
         Object.values(f.states).flatMap((s) =>
           (s?.lane?.bounces ?? []).flatMap((hit) => {
-            const at = contactWall(a, hit)
+            const at = contactWall(run, hit)
             return at?.id === shotId ? [{ hit, at }] : []
           }),
         ),

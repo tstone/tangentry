@@ -9,10 +9,14 @@ import {
   HORSESHOE_RADIUS,
   HORSESHOE_ROTATION,
   addMount,
+  canLeaveBy,
+  endPoint,
   fedBy,
   feedChain,
-  linkShots,
+  feedLoops,
   moveVia,
+  originOf,
+  otherEnd,
   removeMount,
   removeVia,
   removeOpenSpan,
@@ -25,9 +29,12 @@ import {
   setFeed,
   setHorseshoe,
   setLaneEnd,
+  setShotType,
+  shotType,
+  type ShotType,
+  setOrigin,
   setSelectedId,
   shots,
-  unlinkShot,
   updateShot,
   type BallState,
   type Entrance,
@@ -36,6 +43,7 @@ import {
   type TargetFlipper,
   type LaneEnd,
   type Shot,
+  type ShotEnd,
   type WallSide,
 } from '../state/shots'
 import {
@@ -85,11 +93,13 @@ const formatSigned = (inches: number) => (inches > 0 ? `+${formatInches(inches)}
 
 function LaneNotes(props: { shot: Shot }) {
   const lane = () => selectedAnalysis()?.lane ?? null
-  const label = (alignment: LaneAlignment) => {
+  const label = (alignment: LaneAlignment, end: ShotEnd) => {
     const [key, state] = alignment.split('-') as [FlipperKey, BallState]
-    const flipper = selectedAnalysis()?.flippers.find((f) => f.key === key)
+    const run = selectedAnalysis()?.runs.find((r) => r.end === end)
+    const flipper = run?.flippers.find((f) => f.key === key)
     return `${flipper?.label ?? key} · ${stateLabel(key, state).toLowerCase()}`
   }
+  const double = () => props.shot.end === 'double'
   return (
     <Show
       when={lane()}
@@ -97,10 +107,25 @@ function LaneNotes(props: { shot: Shot }) {
     >
       {(l) => (
         <>
-          {/* Null for a fed lane, which has no alignment. */}
+          {/* Null for a fed end, which has no alignment. */}
           <Show when={l().alignedTo !== shotAlignment(props.shot) && l().alignedTo}>
             {(alignedTo) => (
-              <p class="shot-solution-none">That shot has no solution; lined up with {label(alignedTo())} instead.</p>
+              <p class="shot-solution-none">
+                That shot{double() ? ' into the entrance' : ''} has no solution; lined up with{' '}
+                {label(alignedTo(), 'entrance')} instead.
+              </p>
+            )}
+          </Show>
+          <Show when={double() && !l().exitLinedUp}>
+            <p class="shot-solution-none">
+              No solved shot reaches the exit, so it points the way it's set instead of lining up with the ball.
+            </p>
+          </Show>
+          <Show when={double() && l().exitAlignedTo !== shotAlignment(props.shot, 'exit') && l().exitAlignedTo}>
+            {(alignedTo) => (
+              <p class="shot-solution-none">
+                That shot into the exit has no solution; lined up with {label(alignedTo(), 'exit')} instead.
+              </p>
             )}
           </Show>
           <Show when={l().tooNarrow}>
@@ -278,23 +303,34 @@ function WallMounts(props: { shot: Shot; side: WallSide; label: string }) {
   )
 }
 
-// A flipper to shoot from, or a lane feeding this one, chosen as `feed-${id}`.
-type OriginChoice = TargetFlipper | `feed-${number}`
+// A flipper to shoot from, or a lane end feeding this one, chosen as
+// `feed-${id}-${end}`.
+type OriginChoice = TargetFlipper | `feed-${number}-${ShotEnd}`
+
+/** How one end of a shot's lane is named: either end of a double-ended lane, or its exit. */
+const endName = (shot: Shot, end: ShotEnd) => `${shot.name}'s ${end}${shot.end === 'double' ? ' end' : ''}`
 
 /**
- * Where the ball comes from: shot off a flipper, which the lane's entrance
- * lines up with, or out of another lane's exit.
+ * Where the ball comes into one end of the lane from: shot off a flipper,
+ * which that end lines up with, or out of another lane's end.
  */
-function OriginField(props: { shot: Shot }) {
-  const chain = () => feedChain(props.shot)
+function OriginField(props: { shot: Shot; end: ShotEnd }) {
+  const origin = () => originOf(props.shot, props.end)
+  const chain = () => feedChain(props.shot, props.end)
   const options = (): { label: string; value: OriginChoice }[] => [
-    ...flipperOptions(props.shot.entrance),
-    // Not from a lane this one feeds, which would loop.
-    ...shots
-      .filter((s) => s.id !== props.shot.id && !feedChain(s).some((c) => c.id === props.shot.id))
-      .map((s) => ({ label: `${s.name}'s exit`, value: `feed-${s.id}` as OriginChoice })),
+    ...flipperOptions(endPoint(props.shot, props.end)),
+    // Any lane's exit, and either end of a double-ended lane, but not a
+    // lane this one feeds, which would loop.
+    ...shots.flatMap((s) =>
+      (['exit', 'entrance'] as const)
+        .filter((end) => (end === 'exit' || canLeaveBy(s, end)) && !feedLoops(props.shot.id, { id: s.id, end }))
+        .map((end) => ({ label: endName(s, end), value: `feed-${s.id}-${end}` as OriginChoice })),
+    ),
   ]
-  const value = (): OriginChoice => (chain().length > 0 ? `feed-${props.shot.feed!}` : props.shot.flipper)
+  const value = (): OriginChoice => {
+    const feed = origin().feed
+    return chain().length > 0 && feed ? `feed-${feed.id}-${feed.end}` : origin().flipper
+  }
   return (
     <>
       <SelectField
@@ -304,57 +340,92 @@ function OriginField(props: { shot: Shot }) {
         onChange={(choice) => {
           if (choice === value()) return
           if (choice.startsWith('feed-')) {
-            setFeed(props.shot.id, Number(choice.slice('feed-'.length)))
+            const [, id, end] = choice.split('-')
+            setFeed(props.shot.id, props.end, { id: Number(id), end: end as ShotEnd })
             return
           }
           batch(() => {
-            if (props.shot.feed !== null) setFeed(props.shot.id, null)
-            updateShot(props.shot.id, { flipper: choice as TargetFlipper })
+            if (origin().feed !== null) setFeed(props.shot.id, props.end, null)
+            setOrigin(props.shot.id, props.end, { flipper: choice as TargetFlipper })
           })
         }}
       />
       {/* An extra flipper's ball only rolls in. */}
-      <Show when={chain().length === 0 && !targetFlipper(props.shot).startsWith('extra')}>
+      <Show when={chain().length === 0 && !targetFlipper(props.shot, props.end).startsWith('extra')}>
         <SelectField
           label="Ball arrives"
           options={BALL_STATE_OPTIONS}
-          value={props.shot.ballState}
-          onChange={(ballState) => updateShot(props.shot.id, { ballState })}
+          value={origin().ballState}
+          onChange={(ballState) => setOrigin(props.shot.id, props.end, { ballState })}
         />
       </Show>
       <Show when={chain().length > 0}>
         <p class="field-note">
-          The ball leaves {chain().at(-1)!.name}'s exit and crosses open playfield into this lane, which starts out
-          pointing straight from there. Its ball paths are the shots into {chain()[0].name}, run on through each lane.
+          The ball leaves {endName(chain().at(-1)!.shot, chain().at(-1)!.leaves)} and crosses open playfield into this
+          lane, which starts out pointing straight from there. Its ball paths are the shots into{' '}
+          {props.shot.end === 'double' || chain()[0].shot.end === 'double'
+            ? endName(chain()[0].shot, otherEnd(chain()[0].leaves))
+            : chain()[0].shot.name}
+          , run on through each lane.
         </p>
       </Show>
     </>
   )
 }
 
-// Joined lanes are chosen as `link-${id}`.
-type LaneEndChoice = LaneEnd | `link-${number}`
+/** The lanes fed from one end of a shot's lane, if any. */
+function FeedsNote(props: { shot: Shot; end: ShotEnd }) {
+  const fed = () => fedBy({ id: props.shot.id, end: props.end })
+  return (
+    <Show when={fed().length > 0}>
+      <p class="field-note">
+        Feeds {fed().map((f) => (f.shot.end === 'double' ? endName(f.shot, f.end) : f.shot.name)).join(', ')}: the
+        ball leaves here and crosses open playfield into it.
+        {props.end === 'exit' && props.shot.end !== 'double' ? ' Aim the exit direction at it.' : ''}
+      </p>
+    </Show>
+  )
+}
 
-/** Whether the lane ends open, in a horseshoe, or joined to another lane. */
+const SHOT_TYPE_OPTIONS: { label: string; value: ShotType }[] = [
+  { label: 'Single ended', value: 'single' },
+  { label: 'Double ended', value: 'double' },
+  { label: 'Ramp', value: 'ramp' },
+]
+
+const SHOT_TYPE_NOTES: Record<ShotType, string> = {
+  single: 'Shot into at the entrance; the ball leaves by the exit.',
+  double: 'Both ends are entrances and exits: a ball shot into either end leaves by the other.',
+  ramp: "Rises off the playfield, so it can pass over other lanes; lanes on the playfield can't cross. Shot into at the entrance.",
+}
+
+function ShotTypeField(props: { shot: Shot }) {
+  return (
+    <>
+      <SelectField
+        label="Shot type"
+        options={SHOT_TYPE_OPTIONS}
+        value={shotType(props.shot)}
+        onChange={(type) => setShotType(props.shot.id, type)}
+      />
+      <p class="field-note">{SHOT_TYPE_NOTES[shotType(props.shot)]}</p>
+    </>
+  )
+}
+
+const LANE_END_OPTIONS: { label: string; value: LaneEnd }[] = [
+  { label: 'Open', value: 'open' },
+  { label: 'Horseshoe', value: 'horseshoe' },
+]
+
+/** Whether a single-ended lane ends open or in a horseshoe. */
 function LaneEndField(props: { shot: Shot }) {
-  const options = () => [
-    { label: 'Open', value: 'open' as LaneEndChoice },
-    { label: 'Horseshoe', value: 'horseshoe' as LaneEndChoice },
-    ...shots
-      .filter((s) => s.id !== props.shot.id)
-      .map((s) => ({ label: `Joined to ${s.name}`, value: `link-${s.id}` as LaneEndChoice })),
-  ]
-  const value = (): LaneEndChoice => (props.shot.link === null ? props.shot.end : `link-${props.shot.link}`)
   return (
     <SelectField
       label="Lane exit"
-      options={options()}
-      value={value()}
-      onChange={(choice) => {
-        if (choice === value()) return
-        if (choice.startsWith('link-')) linkShots(props.shot.id, Number(choice.slice('link-'.length)))
-        else setLaneEnd(props.shot.id, choice as LaneEnd)
-      }}
+      options={LANE_END_OPTIONS}
+      value={props.shot.end}
+      onChange={(end) => end !== props.shot.end && setLaneEnd(props.shot.id, end)}
     />
   )
 }
@@ -452,6 +523,7 @@ function ShotCard(props: { shot: Shot }) {
         </button>
       </div>
       <Show when={selected()}>
+        <ShotTypeField shot={props.shot} />
         <h4 class="sidebar-heading">Entrance</h4>
         <div class="field-pair">
           <NumberField
@@ -473,7 +545,8 @@ function ShotCard(props: { shot: Shot }) {
             onChange={(y) => setEntrance(props.shot.id, { y })}
           />
         </div>
-        <OriginField shot={props.shot} />
+        <OriginField shot={props.shot} end="entrance" />
+        <FeedsNote shot={props.shot} end="entrance" />
         <NumberField
           label="Width"
           unit="in"
@@ -487,8 +560,10 @@ function ShotCard(props: { shot: Shot }) {
 
         <ViaPoints shot={props.shot} />
 
-        <LaneEndField shot={props.shot} />
-        <h4 class="sidebar-heading">Exit</h4>
+        <h4 class="sidebar-heading">Exit{props.shot.end === 'double' ? ' · also an entrance' : ''}</h4>
+        <Show when={props.shot.end !== 'double'}>
+          <LaneEndField shot={props.shot} />
+        </Show>
         <div class="field-pair">
           <NumberField
             label="X"
@@ -509,6 +584,9 @@ function ShotCard(props: { shot: Shot }) {
             onChange={(y) => setExit(props.shot.id, { y })}
           />
         </div>
+        <Show when={props.shot.end === 'double'}>
+          <OriginField shot={props.shot} end="exit" />
+        </Show>
         <NumberField
           label="Direction"
           unit="°"
@@ -518,6 +596,12 @@ function ShotCard(props: { shot: Shot }) {
           value={props.shot.exit.angle}
           onChange={(angle) => setExit(props.shot.id, { angle })}
         />
+        <Show when={props.shot.end === 'double'}>
+          <p class="field-note">
+            Like the entrance, the exit lines up with the ball coming into it; the direction is used only while none
+            does.
+          </p>
+        </Show>
         <NumberField
           label="Width"
           unit="in"
@@ -527,57 +611,31 @@ function ShotCard(props: { shot: Shot }) {
           value={props.shot.exitWidth}
           onChange={(exitWidth) => updateShot(props.shot.id, { exitWidth })}
         />
-        <Show
-          when={shots.find((s) => s.id === props.shot.link)}
-          fallback={
-            <Show
-              when={props.shot.end === 'horseshoe'}
-              fallback={
-                <Show
-                  when={fedBy(props.shot.id)}
-                  fallback={
-                    <p class="field-note">
-                      Drag the exit or its direction handle onto another lane's exit to join the two into one lane, as
-                      an orbit is.
-                    </p>
-                  }
-                >
-                  {(next) => (
-                    <p class="field-note">
-                      Feeds {next().name}: the ball leaves here and crosses open playfield into its entrance. Aim the
-                      exit direction at it.
-                    </p>
-                  )}
-                </Show>
-              }
-            >
-              <HorseshoeFields shot={props.shot} />
-            </Show>
-          }
-        >
-          {(partner) => (
-            <>
-              <p class="field-note">
-                Joined to {partner().name}: the ball runs on through its lane and out of its entrance. The exit and its
-                width are shared; each lane's exit weight is its own side of the handle.
-              </p>
-              <button type="button" class="wall-mount-add" onClick={() => unlinkShot(props.shot.id)}>
-                Separate lanes
-              </button>
-            </>
-          )}
+        <Show when={props.shot.end === 'double'}>
+          <SliderField
+            label="Exit offset"
+            min={-Math.max(0, props.shot.exitWidth / 2 - ball.diameter / 2)}
+            max={Math.max(0, props.shot.exitWidth / 2 - ball.diameter / 2)}
+            centered
+            value={props.shot.exitOffset}
+            format={formatSigned}
+            ends={['ball nearer left wall', 'nearer right wall']}
+            onChange={(exitOffset) => updateShot(props.shot.id, { exitOffset })}
+          />
+          <SliderField
+            label="Straight lead-in"
+            min={0}
+            max={8}
+            value={props.shot.exitLeadIn}
+            format={formatInches}
+            onChange={(exitLeadIn) => updateShot(props.shot.id, { exitLeadIn })}
+          />
+        </Show>
+        <Show when={props.shot.end === 'horseshoe'} fallback={<FeedsNote shot={props.shot} end="exit" />}>
+          <HorseshoeFields shot={props.shot} />
         </Show>
 
         <h4 class="sidebar-heading">Lane</h4>
-        <label class="checkbox-field">
-          <input
-            type="checkbox"
-            checked={props.shot.ramp}
-            onChange={(e) => updateShot(props.shot.id, { ramp: e.currentTarget.checked })}
-          />
-          Ramp
-        </label>
-        <p class="field-note">A ramp can pass over other lanes; lanes on the playfield can't cross.</p>
         <OpenSpans shot={props.shot} />
         <SelectField
           label="Continuity"

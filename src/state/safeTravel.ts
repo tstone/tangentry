@@ -21,7 +21,8 @@ const CIRCLE_TARGETS = 12
 const shotRegions = createRoot(() =>
   createMemo(() =>
     shotAnalyses().flatMap((analysis) =>
-      analysis.flippers
+      analysis.runs
+        .flatMap((run) => run.flippers)
         .map((f) =>
           Object.values(f.states).flatMap((s) => (s?.lane && MADE.includes(s.lane.outcome) ? s.flight : [])),
         )

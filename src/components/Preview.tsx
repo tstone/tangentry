@@ -21,7 +21,7 @@ import ShotMarkers, { ShotPickers } from './ShotMarkers'
 import ShotPaths from './ShotPaths'
 import SketchPalette, { SketchStrokes } from './Sketch'
 import { activeColor, beginStroke, extendStroke, fitting, sketching } from '../state/sketch'
-import { unfocus } from '../state/focus'
+import { stepBack, unfocus } from '../state/focus'
 import { removeFocused } from '../state/removeFocused'
 import { clickUnlessDragged, isClaimed } from './drag'
 
@@ -54,15 +54,15 @@ export default function Preview() {
     onCleanup(() => svg.removeEventListener('wheel', wheel))
   })
 
-  // Escape lets go of the item in focus and Delete removes it, unless a field
-  // or dialog wants the key.
+  // Escape lets go of the part or item in focus and Delete removes it, unless
+  // a field or dialog wants the key.
   onMount(() => {
     const keydown = (e: KeyboardEvent) => {
       if ((e.key !== 'Escape' && e.key !== 'Delete') || e.defaultPrevented) return
       const target = e.target as HTMLElement | null
       if (target?.closest('input, textarea, select, [contenteditable]')) return
       if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return
-      if (e.key === 'Escape') unfocus()
+      if (e.key === 'Escape') stepBack()
       else removeFocused()
     }
     window.addEventListener('keydown', keydown)

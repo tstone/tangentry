@@ -8,15 +8,21 @@ import { ball } from './ball'
 import { walls } from './walls'
 import { reservedBlocking } from './reserved'
 import {
+  endPoint,
   feedChain,
+  originOf,
+  otherEnd,
   selectedId,
+  shotEnds,
   shots,
   type Entrance,
   type BallState,
   type Exit,
   type FlipperKey,
   type LaneAlignment,
+  type Leg,
   type Shot,
+  type ShotEnd,
   type WallSide,
 } from './shots'
 import {
@@ -239,26 +245,31 @@ function solveWith(
 /** The main flipper a cross-field shot to `entrance` comes off: entrances left of center cross from the right. */
 export const crossSide = (entrance: Entrance): Side => (entrance.x < flippers.centerLine ? 'right' : 'left')
 
-/** The flipper a shot is made off, with 'auto' resolved. */
-export const targetFlipper = (shot: Shot): FlipperKey => (shot.flipper === 'auto' ? crossSide(shot.entrance) : shot.flipper)
-
-/** The ball path a shot's lane is meant to line up with. An extra flipper's ball only rolls in. */
-export const shotAlignment = (shot: Shot): LaneAlignment => {
-  const key = targetFlipper(shot)
-  return `${key}-${key.startsWith('extra') ? 'inlane' : shot.ballState}`
+/** The flipper a shot is made off into one end of its lane, with 'auto' resolved. */
+export const targetFlipper = (shot: Shot, end: ShotEnd = 'entrance'): FlipperKey => {
+  const { flipper } = originOf(shot, end)
+  return flipper === 'auto' ? crossSide(endPoint(shot, end)) : flipper
 }
 
-/** Every flipper's shots through a shot's entrance: the main pair's, cross-field first, then each extra flipper's. */
-export function solveFlippers(shot: Shot): FlipperSolutions[] {
-  const cross = crossSide(shot.entrance)
+/** The ball path one end of a shot's lane is meant to line up with. An extra flipper's ball only rolls in. */
+export const shotAlignment = (shot: Shot, end: ShotEnd = 'entrance'): LaneAlignment => {
+  const key = targetFlipper(shot, end)
+  return `${key}-${key.startsWith('extra') ? 'inlane' : originOf(shot, end).ballState}`
+}
+
+/**
+ * Every flipper's shots through one end of a shot's lane: the main pair's,
+ * cross-field first, then each extra flipper's.
+ */
+export function solveFlippers(shot: Shot, end: ShotEnd = 'entrance'): FlipperSolutions[] {
+  const to = endPoint(shot, end)
+  const cross = crossSide(to)
 
   const main = APPROACHES.map(({ approach, label }) => {
     const side: Side = approach === 'cross' ? cross : cross === 'left' ? 'right' : 'left'
-    return solveWith(flipperSolver(side), side, `${label} · ${side} flipper`, approach, shot.entrance)
+    return solveWith(flipperSolver(side), side, `${label} · ${side} flipper`, approach, to)
   })
-  const extra = extraFlippers.map((f) =>
-    solveWith(extraFlipperSolver(f), extraFlipperKey(f.id), f.name, null, shot.entrance),
-  )
+  const extra = extraFlippers.map((f) => solveWith(extraFlipperSolver(f), extraFlipperKey(f.id), f.name, null, to))
   return [...main, ...extra]
 }
 
@@ -294,9 +305,15 @@ export type Lane = {
   pieces: Piece[]
   walls: LaneWall[]
   // Solution the entrance is lined up with. Differs from the shot's
-  // alignment when that one has no solution. Null for a fed lane, which
-  // lines up with the exit feeding it.
+  // alignment when that one has no solution. Null for a fed entrance,
+  // which lines up with the lane end feeding it.
   alignedTo: LaneAlignment | null
+  // Whether a double-ended lane's exit points back the way the ball comes
+  // into it, as its entrance does. When no ball path reaches it, it points
+  // the way it's set instead.
+  exitLinedUp: boolean
+  // Solution the exit is lined up with, as for the entrance.
+  exitAlignedTo: LaneAlignment | null
   // The ball is wider than the lane.
   tooNarrow: boolean
   // Furthest a wall runs past a side rail, inches; 0 if the lane fits.
@@ -307,16 +324,24 @@ export type Lane = {
 
 export type ShotAnalysis = {
   id: number
-  flippers: FlipperSolutions[]
   lane: Lane | null
-  // Each lane the ball paths run through, in order: any feeding this one,
-  // its own, and any joined on at the exit. Empty if they weren't run.
+  // The ball paths into each end the ball is shot into: the entrance, then
+  // a double-ended lane's exit.
+  runs: EndRun[]
+}
+
+// The ball paths shot into one end of a lane, run through it.
+export type EndRun = {
+  end: ShotEnd
+  flippers: FlipperSolutions[]
+  // Each lane the ball paths run through, in order: any feeding this end,
+  // then its own. Empty if they weren't run.
   parts: TrackPart[]
 }
 
 // A shot's lane as a stretch of the samples a ball path runs along: samples
 // `first` to `last` are the lane's own from `from` on, or back from it when
-// `backward`, as through a joined lane.
+// `backward`, as from a double-ended lane's exit to its entrance.
 export type TrackPart = { id: number; first: number; last: number; from: number; backward: boolean }
 
 const solutionFor = (flippers: FlipperSolutions[], alignment: LaneAlignment) => {
@@ -387,42 +412,71 @@ export function laneExit(lane: Lane) {
   return { index, sample: lane.center[index] }
 }
 
+// How the ball comes into one end of a lane: off the flippers, along one
+// of the ball paths `solved` through it, or out of the lane end feeding
+// it, leaving by `from`.
+export type Inlet = { solved: FlipperSolutions[]; from: Exit | null }
+
 /**
- * A shot's lane, lined up with one of its solved ball paths; null if none
- * reaches the entrance. A fed lane instead starts out heading straight from
- * `from`, the exit feeding it.
+ * The way the ball heads into a lane at `at` (SVG coordinates): along the
+ * ball path lined up with `alignment`, or another if that one has no
+ * solution; or for a fed end, straight across from the lane end feeding it,
+ * or the way that end points if it's right there. Null if no ball path
+ * reaches it.
  */
-export function shapeLane(shot: Shot, solved: FlipperSolutions[], from: CurveSample | null = null): Lane | null {
-  const aligned = from ? null : alignedSolution(shotAlignment(shot), solved)
-  if (!from && !aligned) return null
+function inletDirection(at: Point, alignment: LaneAlignment, inlet: Inlet) {
+  if (inlet.from) {
+    const from = exitSample(inlet.from)
+    const across = { x: at.x - from.p.x, y: at.y - from.p.y }
+    return { dir: Math.hypot(across.x, across.y) > 1e-6 ? unit(across) : from.t, alignedTo: null }
+  }
+  const aligned = alignedSolution(alignment, inlet.solved)
+  return aligned && { dir: unit(aligned.solution.arrivalVelocity), alignedTo: aligned.alignedTo }
+}
+
+/**
+ * A shot's lane, its entrance lined up with the way the ball comes in
+ * there; null if no ball path reaches it. A double-ended lane's exit lines
+ * up with the way the ball comes in there too, given `exitInlet`, and
+ * otherwise points the way it's set.
+ */
+export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = null): Lane | null {
   const entrance = { x: shot.entrance.x, y: playfield.height - shot.entrance.y }
   const exit = { x: shot.exit.x, y: playfield.height - shot.exit.y }
+  const into = inletDirection(entrance, shotAlignment(shot), inlet)
+  if (!into) return null
+  const startDir = into.dir
+  const back =
+    shot.end === 'double' && exitInlet ? inletDirection(exit, shotAlignment(shot, 'exit'), exitInlet) : null
   const exitAngle = toRadians(shot.exit.angle)
-  // A fed lane points the way the ball comes across from the exit feeding
-  // it, or the way that exit points if it's right there.
-  const across = from && { x: entrance.x - from.p.x, y: entrance.y - from.p.y }
-  const startDir = !across
-    ? unit(aligned!.solution.arrivalVelocity)
-    : Math.hypot(across.x, across.y) > 1e-6
-      ? unit(across)
-      : from!.t
+  const endDir = back
+    ? { x: -back.dir.x, y: -back.dir.y }
+    : // Screen angles are counter-clockwise; SVG y points down.
+      { x: Math.cos(exitAngle), y: -Math.sin(exitAngle) }
   // The lane can sit off to one side of where the ball enters.
   const start = {
     x: entrance.x - normal(startDir).x * shot.entranceOffset,
     y: entrance.y - normal(startDir).y * shot.entranceOffset,
   }
-  const horseshoe = shot.end === 'horseshoe' && shot.link === null
+  // A double-ended lane's exit is an entrance too, offset and led into the
+  // same way, as seen by the ball coming in there.
+  const double = shot.end === 'double'
+  const backDir = { x: -endDir.x, y: -endDir.y }
+  const end = double
+    ? { x: exit.x - normal(backDir).x * shot.exitOffset, y: exit.y - normal(backDir).y * shot.exitOffset }
+    : exit
+  const horseshoe = shot.end === 'horseshoe'
   const turn = toRadians(shot.horseshoe.rotation)
   const toExit = laneCenterLine(
     start,
     startDir,
-    exit,
-    // Screen angles are counter-clockwise; SVG y points down.
-    { x: Math.cos(exitAngle), y: -Math.sin(exitAngle) },
+    end,
+    endDir,
     shot.continuity,
     { entrance: shot.entranceWeight, exit: shot.exitWeight },
     shot.leadIn,
-    shot.via.map((v) => ({ x: v.x, y: playfield.height - v.y })),
+    shot.via.map((v) => ({ x: v.x, y: playfield.height - v.y, weight: v.weight })),
+    double ? shot.exitLeadIn : 0,
   )
   const exitDistance = toExit[toExit.length - 1].s
   // A horseshoe carries the lane on past the exit, at the exit width.
@@ -477,7 +531,9 @@ export function shapeLane(shot: Shot, solved: FlipperSolutions[], from: CurveSam
     open,
     pieces,
     walls: laneWalls,
-    alignedTo: aligned?.alignedTo ?? null,
+    alignedTo: into.alignedTo,
+    exitLinedUp: back !== null,
+    exitAlignedTo: back?.alignedTo ?? null,
     tooNarrow: Math.min(width.entrance, width.exit) <= ball.diameter,
     overRail: Math.max(
       0,
@@ -501,24 +557,48 @@ export const laneOutlines = (lane: Lane) =>
 
 const wallOn = (lane: Lane, offset: number) => lane.walls[WALL_SIDES.findIndex((w) => w.offset === offset)]
 
-// A shot whose exit leads into the next lane the ball runs through, and
-// that shot's lane, null if it has none.
-export type Feeder = { id: number; exit: Exit; lane: Lane | null }
+// A lane the ball runs through on its way to the next: it leaves by
+// `exit`, where and about which way it heads out, having run from the
+// lane's exit back to its entrance if `backward`. Its lane is null if it
+// has none.
+export type Feeder = { id: number; exit: Exit; lane: Lane | null; backward?: boolean }
 
-// Spacing of the samples across open playfield, from a lane's exit to the
+/**
+ * Where the ball leaves a shot's lane by one end, and about which way: the
+ * exit's set direction, or out of a double-ended lane's end straight on
+ * from the next point in, as its ends line up with the ball and aren't set.
+ */
+export function leavingExit(shot: Shot, leaves: ShotEnd): Exit {
+  if (leaves === 'exit' && shot.end !== 'double') return { ...shot.exit }
+  const at = endPoint(shot, leaves)
+  const inward = leaves === 'entrance' ? shot.via : [...shot.via].reverse()
+  const next = inward[0] ?? endPoint(shot, otherEnd(leaves))
+  return { ...at, angle: (Math.atan2(at.y - next.y, at.x - next.x) * 180) / Math.PI }
+}
+
+// How the ball comes into one end of a lane: shot off the flippers along
+// the ball paths `solved`, or through the lanes `feeders`, from the one
+// shot off the flippers, whose ball paths `solved` are then, on to the one
+// it leaves into this end.
+export type Inflow = { solved: FlipperSolutions[]; feeders: Feeder[] }
+
+/** The way into a lane that an inflow comes by, for shaping it. */
+const inletOf = (inflow: Inflow): Inlet => ({ solved: inflow.solved, from: inflow.feeders.at(-1)?.exit ?? null })
+
+// Spacing of the samples across open playfield, from a lane's end to the
 // entrance of the lane it feeds, inches.
 const GAP_SPACING = 0.05
 
 type Placed = TrackPart & { lane: Lane }
 
 /**
- * What the ball runs along: the lanes feeding a shot's, each up to its exit
- * and then straight across open playfield to the next one's entrance; the
- * shot's own lane; then on through the lane joined to its exit, backward
- * from there to that lane's entrance. Going backward swaps the joined
- * lane's walls, since its right is then on the ball's left.
+ * What the ball runs along: the lanes feeding one end of a shot's, each
+ * through to the end it leaves by and then straight across open playfield
+ * to the next one; then the shot's own lane, backward from its exit if
+ * `backward`. Going backward through a lane swaps its walls, since its
+ * right is then on the ball's left.
  */
-function track(id: number, own: Lane, feeders: { id: number; lane: Lane }[], joined: { id: number; lane: Lane } | null) {
+function track(id: number, own: Lane, feeders: { id: number; lane: Lane; backward: boolean }[], backward: boolean) {
   const center: CurveSample[] = []
   const widths: number[] = []
   const open: boolean[] = []
@@ -530,9 +610,23 @@ function track(id: number, own: Lane, feeders: { id: number; lane: Lane }[], joi
     widths.push(width)
     open.push(isOpen)
   }
-  // Samples of a lane, in the order given.
+  // Open playfield in a straight line on to `b`, where the next lane starts `width` wide.
+  const crossTo = (b: Point, width: number) => {
+    const a = center.at(-1)!
+    const length = Math.hypot(b.x - a.p.x, b.y - a.p.y)
+    const n = Math.floor(length / GAP_SPACING)
+    const t = unit({ x: b.x - a.p.x, y: b.y - a.p.y })
+    const from = widths.at(-1)!
+    for (let k = 1; k < n; k++) {
+      const f = k / n
+      push({ x: a.p.x + (b.x - a.p.x) * f, y: a.p.y + (b.y - a.p.y) * f }, t, from + (width - from) * f, true)
+    }
+  }
+  // Samples of a lane, in the order given, across open playfield from the last.
   const addLane = (id: number, lane: Lane, indices: number[], backward: boolean) => {
-    // A lane starting where the track left off, as joined exits do, shares that point.
+    if (center.length > 0) crossTo(lane.center[indices[0]].p, lane.widths[indices[0]])
+    // A lane starting where the track left off, as one fed from right
+    // where another ends does, shares that point.
     const last = center.at(-1)
     const start = lane.center[indices[0]].p
     const skip = last && Math.hypot(start.x - last.p.x, start.y - last.p.y) < 1e-9 ? 1 : 0
@@ -543,28 +637,16 @@ function track(id: number, own: Lane, feeders: { id: number; lane: Lane }[], joi
     }
     if (center.length > first) placed.push({ id, lane, first, last: center.length - 1, from: indices[skip], backward })
   }
-  // Open playfield in a straight line on to the start of `lane`.
-  const crossTo = (lane: Lane) => {
-    const a = center.at(-1)!
-    const b = lane.center[0].p
-    const length = Math.hypot(b.x - a.p.x, b.y - a.p.y)
-    const n = Math.floor(length / GAP_SPACING)
-    const t = unit({ x: b.x - a.p.x, y: b.y - a.p.y })
-    const from = widths.at(-1)!
-    for (let k = 1; k < n; k++) {
-      const f = k / n
-      push({ x: a.p.x + (b.x - a.p.x) * f, y: a.p.y + (b.y - a.p.y) * f }, t, from + (lane.widths[0] - from) * f, true)
-    }
-  }
   const upTo = (count: number) => Array.from({ length: count }, (_, i) => i)
-
-  for (const feeder of feeders) {
-    if (center.length > 0) crossTo(feeder.lane)
-    addLane(feeder.id, feeder.lane, upTo(laneExit(feeder.lane).index + 1), false)
+  // Entrance to exit, or back the other way.
+  const through = (lane: Lane, backward: boolean) => {
+    const indices = upTo(laneExit(lane).index + 1)
+    return backward ? indices.reverse() : indices
   }
-  if (center.length > 0) crossTo(own)
-  addLane(id, own, upTo(own.center.length), false)
-  if (joined) addLane(joined.id, joined.lane, upTo(joined.lane.center.length).reverse(), true)
+
+  for (const feeder of feeders) addLane(feeder.id, feeder.lane, through(feeder.lane, feeder.backward), feeder.backward)
+  // Shot into its entrance, the ball carries on around any horseshoe.
+  addLane(id, own, backward ? through(own, true) : upTo(own.center.length), backward)
 
   return {
     center,
@@ -586,41 +668,30 @@ const laneIndex = (part: TrackPart, index: number) =>
   part.backward ? part.from - (index - part.first) : part.from + (index - part.first)
 
 /**
- * Which wall a ball path in a shot's analysis touched: whose lane, which
+ * Which wall a ball path in one of a shot's runs touched: whose lane, which
  * side (as `offsetCurve` numbers them) and which sample along it. Null off
  * every lane, as across open playfield between them.
  */
-export function contactWall(analysis: ShotAnalysis, contact: WallContact) {
-  const part = analysis.parts.find((p) => contact.index >= p.first && contact.index <= p.last)
+export function contactWall(run: EndRun, contact: WallContact) {
+  const part = run.parts.find((p) => contact.index >= p.first && contact.index <= p.last)
   if (!part) return null
   return { id: part.id, offset: part.backward ? -contact.side : contact.side, index: laneIndex(part, contact.index) }
 }
 
 /**
- * Run each of a shot's solved ball paths through its lane, after the lanes
- * feeding it and on through the lane joined to its exit if there is one. A
- * fed shot's ball paths are those of the first feeding lane, off the flippers.
+ * Run each of the ball paths into one end of a shot's lane through it,
+ * after the lanes feeding that end. A fed end's ball paths are those of
+ * the first feeding lane, off the flippers.
  */
-function runLanes(
-  shot: Shot,
-  solved: FlipperSolutions[],
-  lane: Lane | null,
-  joined: Lane | null,
-  feeders: Feeder[] = [],
-): ShotAnalysis {
+function runEnd(shot: Shot, lane: Lane | null, end: ShotEnd, inflow: Inflow): EndRun {
   // Without every lane feeding it, there's no knowing how the ball gets here.
-  const feeding = feeders.flatMap((f) => (f.lane ? [{ id: f.id, lane: f.lane }] : []))
-  if (!lane || feeding.length < feeders.length) return { id: shot.id, flippers: solved, lane, parts: [] }
-  const { center, widths, open, parts, response } = track(
-    shot.id,
-    lane,
-    feeding,
-    joined && shot.link !== null ? { id: shot.link, lane: joined } : null,
-  )
+  const feeding = inflow.feeders.flatMap((f) => (f.lane ? [{ id: f.id, lane: f.lane, backward: !!f.backward }] : []))
+  if (!lane || feeding.length < inflow.feeders.length) return { end, flippers: inflow.solved, parts: [] }
+  const { center, widths, open, parts, response } = track(shot.id, lane, feeding, end === 'exit')
   const ballRadius = ball.diameter / 2
   const gravity = rollingGravity(GRAVITY * Math.sin(toRadians(playfield.angle)))
 
-  const flippers = solved.map((f) => ({
+  const flippers = inflow.solved.map((f) => ({
     ...f,
     states: Object.fromEntries(
       Object.entries(f.states).map(([state, s]) => [
@@ -633,60 +704,84 @@ function runLanes(
     ) as FlipperSolutions['states'],
   }))
 
-  return { id: shot.id, flippers, lane, parts }
+  return { end, flippers, parts }
 }
 
+/** A shot's lane with the ball paths into each of its ends run through it. */
+const withRuns = (shot: Shot, lane: Lane | null, inflow: Inflow, exitInflow: Inflow | null): ShotAnalysis => ({
+  id: shot.id,
+  lane,
+  runs: [
+    runEnd(shot, lane, 'entrance', inflow),
+    ...(shot.end === 'double' && exitInflow ? [runEnd(shot, lane, 'exit', exitInflow)] : []),
+  ],
+})
+
 /**
- * Solve a shot's flippers and run each ball path through its lane, and on
- * through `joined`, the lane of the shot linked to it. The flipper
- * solutions depend only on the entrance, so callers trying many lane shapes
- * for one entrance can solve them once and pass them in.
- *
- * A fed shot's ball comes through `feeders` first, from the one shot off
- * the flippers on, and `solved` are the solutions for that one's entrance.
+ * Shape a shot's lane and run the ball paths into each end through it. The
+ * flipper solutions depend only on where the end is, so callers trying many
+ * lane shapes for one entrance can solve them once and pass them in. A
+ * double-ended lane's exit is shot off the flippers unless `exitInflow`
+ * says otherwise.
  */
 export function analyze(
   shot: Shot,
-  solved = solveFlippers(shot),
-  joined: Lane | null = null,
-  feeders: Feeder[] = [],
+  inflow: Inflow = { solved: solveFlippers(shot), feeders: [] },
+  exitInflow: Inflow | null = shot.end === 'double' ? { solved: solveFlippers(shot, 'exit'), feeders: [] } : null,
 ): ShotAnalysis {
-  const from = feeders.at(-1)
-  return runLanes(shot, solved, shapeLane(shot, solved, from ? exitSample(from.exit) : null), joined, feeders)
+  const lane = shapeLane(shot, inletOf(inflow), exitInflow && inletOf(exitInflow))
+  return withRuns(shot, lane, inflow, exitInflow)
 }
 
+const sameLeg = (a: Leg | null, b: Leg | null) => a === b || (!!a && !!b && a.shot === b.shot && a.leaves === b.leaves)
+
 // Each shot's lane is shaped separately, so editing one doesn't re-solve
-// the rest. Its ball paths are run once its own and any joined or feeding
-// lanes are.
+// the rest. Its ball paths are run once its own and any feeding lanes are.
 const laneShapes = createRoot(() => {
   const list = mapArray(
     () => shots,
     (shot) => {
-      // A fed lane is shaped from the exit feeding it, not the flippers.
-      const feeder = createMemo(() => feedChain(shot).at(-1) ?? null)
-      const solved = createMemo(() => (feeder() ? [] : solveFlippers(shot)))
-      const lane = createMemo(() => {
-        const from = feeder()
-        return shapeLane(shot, solved(), from && exitSample(from.exit))
-      })
-      return { id: shot.id, solved, lane }
+      const inletAt = (end: ShotEnd) => {
+        const shotInto = () => end === 'entrance' || shot.end === 'double'
+        // A fed end is shaped from the lane end feeding it, not the flippers.
+        const feeder = createMemo(() => (shotInto() ? (feedChain(shot, end).at(-1) ?? null) : null), null, {
+          equals: sameLeg,
+        })
+        const solved = createMemo(() => (shotInto() && !feeder() ? solveFlippers(shot, end) : []))
+        const inlet = (): Inlet => {
+          const from = feeder()
+          return { solved: solved(), from: from && leavingExit(from.shot, from.leaves) }
+        }
+        return { solved, inlet }
+      }
+      const entrance = inletAt('entrance')
+      const exit = inletAt('exit')
+      const lane = createMemo(() => shapeLane(shot, entrance.inlet(), shot.end === 'double' ? exit.inlet() : null))
+      return { id: shot.id, solved: { entrance: entrance.solved, exit: exit.solved }, lane }
     },
   )
   return createMemo(list)
 })
 
 /**
- * The flipper solutions a fed shot's ball paths start from, and the lanes
- * feeding it, as currently shaped. Null if it's shot off the flippers.
+ * How the ball comes into one end of a shot's lane: off the flippers, or
+ * through the lanes feeding it, as they're currently shaped.
  */
-export function shotFeed(shot: Shot): { solved: FlipperSolutions[]; feeders: Feeder[] } | null {
-  const chain = feedChain(shot)
-  if (chain.length === 0) return null
+export function inflowOf(shot: Shot, end: ShotEnd = 'entrance'): Inflow {
   const shapes = laneShapes()
   const shapeOf = (id: number) => shapes.find((s) => s.id === id)
+  const chain = feedChain(shot, end)
+  if (chain.length === 0) return { solved: shapeOf(shot.id)?.solved[end]() ?? solveFlippers(shot, end), feeders: [] }
+  // The first lane is shot into by its other end.
+  const first = chain[0]
   return {
-    solved: shapeOf(chain[0].id)?.solved() ?? [],
-    feeders: chain.map((s) => ({ id: s.id, exit: { ...s.exit }, lane: shapeOf(s.id)?.lane() ?? null })),
+    solved: shapeOf(first.shot.id)?.solved[otherEnd(first.leaves)]() ?? [],
+    feeders: chain.map(({ shot: s, leaves }) => ({
+      id: s.id,
+      exit: leavingExit(s, leaves),
+      lane: shapeOf(s.id)?.lane() ?? null,
+      backward: leaves === 'entrance',
+    })),
   }
 }
 
@@ -698,9 +793,7 @@ export const shotAnalyses = createRoot(() => {
       createMemo(() => {
         const own = laneShapes().find((s) => s.id === shot.id)
         if (!own) return analyze(shot)
-        const joined = shot.link === null ? null : (laneShapes().find((s) => s.id === shot.link)?.lane() ?? null)
-        const feed = shotFeed(shot)
-        return runLanes(shot, feed?.solved ?? own.solved(), own.lane(), joined, feed?.feeders)
+        return withRuns(shot, own.lane(), inflowOf(shot), shot.end === 'double' ? inflowOf(shot, 'exit') : null)
       }),
   )
   return createMemo(() => list().map((analysis) => analysis()))
@@ -709,10 +802,13 @@ export const shotAnalyses = createRoot(() => {
 /** Whether any of one lane's outlines overlaps any of another's. */
 export const outlinesOverlap = (a: Point[][], b: Point[][]) => a.some((p) => b.some((q) => polygonsOverlap(p, q)))
 
+/** Whether either end of `a` is fed by `b`. */
+const feeds = (b: Shot, a: Shot) => shotEnds(a).some((end) => originOf(a, end).feed?.id === b.id)
+
 /**
  * The other shots each shot's lane runs into, by id. Ramps pass over other
- * lanes, and lanes joined at their exits or fed one from the other are
- * meant to meet, so none of those count.
+ * lanes, and lanes fed one from the other are meant to meet, so none of
+ * those count.
  */
 export const laneCrossings = createRoot(() =>
   createMemo(() => {
@@ -724,7 +820,7 @@ export const laneCrossings = createRoot(() =>
     const add = (id: number, other: Shot) => crossed.set(id, [...(crossed.get(id) ?? []), other])
     flat.forEach((a, i) => {
       for (const b of flat.slice(i + 1)) {
-        const meant = a.shot.link === b.shot.id || a.shot.feed === b.shot.id || b.shot.feed === a.shot.id
+        const meant = feeds(a.shot, b.shot) || feeds(b.shot, a.shot)
         if (meant || !outlinesOverlap(a.outlines, b.outlines)) continue
         add(a.shot.id, b.shot)
         add(b.shot.id, a.shot)
@@ -734,14 +830,9 @@ export const laneCrossings = createRoot(() =>
   }),
 )
 
-/** The lane of the shot joined to `shotId`'s, as currently shaped. */
-export const joinedLane = (shotId: number) => {
-  const link = shots.find((s) => s.id === shotId)?.link ?? null
-  return link === null ? null : (shotAnalyses().find((a) => a.id === link)?.lane ?? null)
-}
-
 export const selectedAnalysis = createRoot(() =>
   createMemo(() => shotAnalyses().find((a) => a.id === selectedId()) ?? null),
 )
 
-export const selectedSolutions = () => selectedAnalysis()?.flippers ?? []
+/** The selected shot's ball paths, into each end it's shot into. */
+export const selectedRuns = () => selectedAnalysis()?.runs ?? []

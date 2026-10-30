@@ -2,7 +2,7 @@ import { batch } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { playfield } from './playfield'
 import { focusOn, focusedId, unfocus } from './focus'
-import { shots, updateShot, type Entrance, type FlipperKey } from './shots'
+import { originOf, setOrigin, shots, type Entrance, type FlipperKey, type ShotEnd } from './shots'
 import type { FlipperProfileId } from '../physics/drive'
 
 // Flippers besides the main pair, each placed anywhere on the playfield.
@@ -61,8 +61,9 @@ export function addExtraFlipper() {
 function forgetMissingAlignments() {
   const present = new Set<FlipperKey>(extraFlippers.map((f) => extraFlipperKey(f.id)))
   for (const shot of shots) {
-    if (shot.flipper.startsWith('extra') && !present.has(shot.flipper as FlipperKey)) {
-      updateShot(shot.id, { flipper: 'auto' })
+    for (const end of ['entrance', 'exit'] as ShotEnd[]) {
+      const { flipper } = originOf(shot, end)
+      if (flipper.startsWith('extra') && !present.has(flipper as FlipperKey)) setOrigin(shot.id, end, { flipper: 'auto' })
     }
   }
 }

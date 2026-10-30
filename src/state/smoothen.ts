@@ -13,7 +13,7 @@ import {
   updateShot,
   type Shot,
 } from './shots'
-import { analyze, joinedLane, shotFeed, solveFlippers, type FlipperSolutions, type ShotAnalysis } from './solutions'
+import { analyze, inflowOf, type ShotAnalysis } from './solutions'
 import { MAX_FLEX } from '../physics/wall'
 import type { CurveSample, LaneOutcome, LaneRun } from '../geometry/lane'
 
@@ -86,18 +86,21 @@ export function roughness(shot: Shot, analysis: ShotAnalysis): number {
   if (!lane) return Infinity
   let cost = RAIL_COST * lane.overRail
   if (lane.tightest.radius < Math.max(shot.entranceWidth, shot.exitWidth) / 2) cost += FOLD_COST
-  for (const f of analysis.flippers) {
-    for (const [state, s] of Object.entries(f.states)) {
-      if (!s) continue
-      cost += runCost(s.lane) * (`${f.key}-${state}` === lane.alignedTo ? ALIGNED_WEIGHT : 1)
+  for (const run of analysis.runs) {
+    const alignedTo = run.end === 'entrance' ? lane.alignedTo : lane.exitAlignedTo
+    for (const f of run.flippers) {
+      for (const [state, s] of Object.entries(f.states)) {
+        if (!s) continue
+        cost += runCost(s.lane) * (`${f.key}-${state}` === alignedTo ? ALIGNED_WEIGHT : 1)
+      }
     }
   }
   return cost
 }
 
-/** Paths through the lane that aren't smooth. */
+/** Paths through the lane, into either end, that aren't smooth. */
 const roughPaths = (analysis: ShotAnalysis) =>
-  analysis.flippers.reduce(
+  analysis.runs.flatMap((run) => run.flippers).reduce(
     (n, f) => n + Object.values(f.states).filter((s) => s && (!s.lane || s.lane.outcome !== 'smooth')).length,
     0,
   )
@@ -150,15 +153,15 @@ export async function smoothen(
     via: live.via.map((v) => ({ ...v })),
     mounts: { left: live.mounts.left.map((m) => ({ ...m })), right: live.mounts.right.map((m) => ({ ...m })) },
     horseshoe: { ...live.horseshoe },
+    exitOrigin: { ...live.exitOrigin },
   }
-  // Lanes feeding it and any joined lane are left as they are; the ball
-  // still runs through them.
-  const feed = shotFeed(live)
-  const solved: FlipperSolutions[] = feed?.solved ?? solveFlippers(shot)
-  const joined = joinedLane(shotId)
+  // Lanes feeding either end are left as they are; the ball still runs
+  // through them.
+  const inflow = inflowOf(live)
+  const exitInflow = live.end === 'double' ? inflowOf(live, 'exit') : null
   const evaluate = (params: Params) => {
     const candidate = { ...shot, ...params }
-    const analysis = analyze(candidate, solved, joined, feed?.feeders)
+    const analysis = analyze(candidate, inflow, exitInflow)
     return { cost: roughness(candidate, analysis), analysis }
   }
 
@@ -181,7 +184,7 @@ export async function smoothen(
   const maxOffset = Math.max(0, shot.entranceWidth / 2 - ball.diameter / 2)
   // The entrance is kept back from the most it can be offset.
   const offsetReach = Math.max(0, maxOffset - OFFSET_MARGIN)
-  const horseshoe = shot.end === 'horseshoe' && shot.link === null
+  const horseshoe = shot.end === 'horseshoe'
 
   const viaKnobs = (via: Params['via'], reach: (i: number) => number): Knob[] =>
     via.flatMap((point, i): Knob[] =>

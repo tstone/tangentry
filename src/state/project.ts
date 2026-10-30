@@ -7,13 +7,18 @@ import { walls, setWalls, type Walls } from './walls'
 import { clearPlayfieldImage } from './playfieldImage'
 import {
   DEFAULT_HORSESHOE,
+  DEFAULT_ORIGIN,
+  canLeaveBy,
   replaceShots,
   shots,
   type BallState,
   type Entrance,
+  type Feed,
   type FlipperKey,
   type OpenSpan,
+  type Origin,
   type Shot,
+  type TargetFlipper,
   type WallMount,
 } from './shots'
 import { replaceReserved, reserved, type ReservedArea } from './reserved'
@@ -155,7 +160,31 @@ function readExtraFlipper(input: unknown, path: string): ExtraFlipper {
   }
 }
 
-function readShot(input: unknown, path: string, centerLine: number): Shot {
+/**
+ * The lane end feeding another. Files saved before lanes could be
+ * double-ended give the feeding shot's id, which always fed from its exit.
+ */
+function readFeed(input: unknown, path: string): Feed | null {
+  // Missing from files saved before lanes could feed one another.
+  if (input === undefined || input === null) return null
+  if (isNumber(input)) return { id: input, end: 'exit' }
+  const f = object(input, path)
+  return { id: number(f.id, `${path}.id`), end: oneOf(f.end, ['entrance', 'exit'] as const, `${path}.end`) }
+}
+
+/** Where the ball comes into a double-ended lane's exit from. */
+function readExitOrigin(input: unknown, exit: Entrance, centerLine: number, path: string): Origin {
+  // Missing from files saved before lanes could be double-ended.
+  if (input === undefined) return { ...DEFAULT_ORIGIN }
+  const o = object(input, path)
+  return { ...readTarget(o, exit, centerLine, path), feed: readFeed(o.feed, `${path}.feed`) }
+}
+
+/**
+ * A shot, and the shot whose exit its own was joined to in files saved
+ * before lanes could be double-ended.
+ */
+function readShot(input: unknown, path: string, centerLine: number): { shot: Shot; link: number | null } {
   const s = object(input, path)
   const entrance = point(s.entrance, `${path}.entrance`)
   const mounts = object(s.mounts, `${path}.mounts`)
@@ -173,46 +202,124 @@ function readShot(input: unknown, path: string, centerLine: number): Shot {
     })
   }
   if (!Array.isArray(s.via)) throw new Error(`${path}.via should be a list.`)
-  if (s.link !== null && !isNumber(s.link)) throw new Error(`${path}.link should be a shot id or null.`)
-  // Missing from files saved before lanes could feed one another.
-  const feed = s.feed ?? null
-  if (feed !== null && !isNumber(feed)) throw new Error(`${path}.feed should be a shot id or null.`)
+  // Missing from files saved since lanes could be double-ended.
+  const link = s.link ?? null
+  if (link !== null && !isNumber(link)) throw new Error(`${path}.link should be a shot id or null.`)
   if (s.funnelLength !== null && !isNumber(s.funnelLength)) throw new Error(`${path}.funnelLength should be a number or null.`)
+  const exit = point(s.exit, `${path}.exit`)
+  // Missing from files saved before lanes could end in a horseshoe.
+  const end = s.end === undefined ? 'open' : oneOf(s.end, ['open', 'horseshoe', 'double'] as const, `${path}.end`)
 
-  return {
+  const shot: Shot = {
     id: number(s.id, `${path}.id`),
     name: typeof s.name === 'string' ? s.name : `Shot ${s.id}`,
     entrance,
     entranceWidth: number(s.entranceWidth, `${path}.entranceWidth`),
     exitWidth: number(s.exitWidth, `${path}.exitWidth`),
-    exit: { ...point(s.exit, `${path}.exit`), angle: number(object(s.exit, `${path}.exit`).angle, `${path}.exit.angle`) },
+    exit: { ...exit, angle: number(object(s.exit, `${path}.exit`).angle, `${path}.exit.angle`) },
     continuity: oneOf(s.continuity, ['g1', 'g2'] as const, `${path}.continuity`),
     entranceWeight: number(s.entranceWeight, `${path}.entranceWeight`),
     exitWeight: number(s.exitWeight, `${path}.exitWeight`),
     ...readTarget(s, entrance, centerLine, path),
     entranceOffset: number(s.entranceOffset, `${path}.entranceOffset`),
     leadIn: number(s.leadIn, `${path}.leadIn`),
+    // Missing from files saved before a double-ended lane's exit had its own.
+    exitOffset: s.exitOffset === undefined ? 0 : number(s.exitOffset, `${path}.exitOffset`),
+    exitLeadIn: s.exitLeadIn === undefined ? 0 : number(s.exitLeadIn, `${path}.exitLeadIn`),
     funnelLength: s.funnelLength ?? Infinity,
-    via: s.via.map((v, i) => ({
-      id: number(object(v, `${path}.via[${i}]`).id, `${path}.via[${i}].id`),
-      ...point(v, `${path}.via[${i}]`),
-    })),
+    via: s.via.map((v, i) => {
+      const via = object(v, `${path}.via[${i}]`)
+      return {
+        id: number(via.id, `${path}.via[${i}].id`),
+        ...point(v, `${path}.via[${i}]`),
+        // Missing from files saved before bend points had weights.
+        weight: via.weight === undefined ? 1 : number(via.weight, `${path}.via[${i}].weight`),
+      }
+    }),
     mounts: { left: readMounts('left'), right: readMounts('right') },
-    link: s.link,
-    feed,
-    // Missing from files saved before ramps.
-    ramp: s.ramp === true,
-    // Missing from files saved before lanes could end in a horseshoe.
-    end: s.end === undefined ? 'open' : oneOf(s.end, ['open', 'horseshoe'] as const, `${path}.end`),
+    feed: readFeed(s.feed, `${path}.feed`),
+    end,
+    // Missing from files saved before ramps. A ramp is single-ended.
+    ramp: s.ramp === true && end !== 'double',
+    exitOrigin: readExitOrigin(s.exitOrigin, exit, centerLine, `${path}.exitOrigin`),
     horseshoe:
       s.horseshoe === undefined
         ? { ...DEFAULT_HORSESHOE }
         : {
             rotation: number(object(s.horseshoe, `${path}.horseshoe`).rotation, `${path}.horseshoe.rotation`),
-            radius: number(object(s.horseshoe, `${path}.horseshoe`).radius, `${path}.horseshoe.radius`),          },
+            radius: number(object(s.horseshoe, `${path}.horseshoe`).radius, `${path}.horseshoe.radius`),
+          },
     // Missing from files saved before lanes could have open spans.
     openSpans: readOpenSpans(s.openSpans, `${path}.openSpans`),
   }
+  return { shot, link }
+}
+
+/** Length of the line through `points` in turn, inches. */
+const pathLength = (points: Entrance[]) =>
+  points.reduce((sum, p, i) => (i === 0 ? 0 : sum + Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y)), 0)
+
+/**
+ * Merge each pair of shots saved with their exits joined, as orbits were
+ * made before lanes could be double-ended, into one double-ended shot: up
+ * the first one's lane to where they were joined, now a bend point, and on
+ * back down the second's to its entrance, now the exit with its origin.
+ * Mounts and open spans keep their places along the lane, measured roughly.
+ */
+function mergeJoined(read: { shot: Shot; link: number | null }[]): Shot[] {
+  const list = read.map((r) => r.shot)
+  const linkOf = new Map(read.map((r) => [r.shot.id, r.link]))
+  let nextViaId = Math.max(0, ...list.flatMap((s) => s.via.map((v) => v.id))) + 1
+  const merged = new Map<number, Shot>()
+  // The second shot of each pair, now part of the first.
+  const absorbed = new Set<number>()
+  for (const a of list) {
+    const b = list.find((s) => s.id === linkOf.get(a.id))
+    // Each pair is merged once, into the shot with the lower id.
+    if (!b || linkOf.get(b.id) !== a.id || b.id < a.id) continue
+    const share = pathLength([a.entrance, ...a.via, a.exit])
+    const total = share + pathLength([b.entrance, ...b.via, b.exit])
+    const split = total > 0 ? share / total : 0.5
+    // Fractions along each lane, as fractions along the merged one. The
+    // second lane runs backward, so its left wall is on the right.
+    const alongA = (at: number) => at * split
+    const alongB = (at: number) => split + (1 - at) * (1 - split)
+    const backB = [...b.via].reverse()
+    const before = backB.at(-1) ?? a.exit
+    merged.set(a.id, {
+      ...a,
+      via: [...a.via, { id: nextViaId++, x: a.exit.x, y: a.exit.y, weight: 1 }, ...backB.map((v) => ({ ...v, id: nextViaId++ }))],
+      exit: {
+        x: b.entrance.x,
+        y: b.entrance.y,
+        angle: Math.round((Math.atan2(b.entrance.y - before.y, b.entrance.x - before.x) * 180) / Math.PI),
+      },
+      exitWidth: b.entranceWidth,
+      exitWeight: b.entranceWeight,
+      exitOffset: b.entranceOffset,
+      exitLeadIn: b.leadIn,
+      end: 'double',
+      exitOrigin: { flipper: b.flipper, ballState: b.ballState, feed: b.feed },
+      // A ramp is single-ended, so the pair stays on the playfield.
+      ramp: false,
+      mounts: {
+        left: [
+          ...a.mounts.left.map((m) => ({ ...m, at: alongA(m.at) })),
+          ...b.mounts.right.map((m) => ({ ...m, at: alongB(m.at) })).reverse(),
+        ],
+        right: [
+          ...a.mounts.right.map((m) => ({ ...m, at: alongA(m.at) })),
+          ...b.mounts.left.map((m) => ({ ...m, at: alongB(m.at) })).reverse(),
+        ],
+      },
+      openSpans: [
+        ...a.openSpans.map((span) => ({ from: alongA(span.from), to: alongA(span.to) })),
+        ...b.openSpans.map((span) => ({ from: alongB(span.to), to: alongB(span.from) })).reverse(),
+      ],
+    })
+    absorbed.add(b.id)
+  }
+  return list.filter((s) => !absorbed.has(s.id)).map((s) => merged.get(s.id) ?? s)
 }
 
 function readOpenSpans(input: unknown, path: string): OpenSpan[] {
@@ -294,16 +401,22 @@ export function importProject(json: string) {
     })(),
   }
 
-  // A join or feed only holds if both lanes made it into the file, and a
-  // shot off an extra flipper only if that flipper did.
-  const present = new Set(next.shots.map((s) => s.id))
-  if (present.size !== next.shots.length) throw new Error('Two shots share an id.')
+  if (new Set(next.shots.map((r) => r.shot.id)).size !== next.shots.length) throw new Error('Two shots share an id.')
+  const merged = mergeJoined(next.shots)
+  // A feed only holds if the feeding lane made it into the file and can be
+  // left by that end, and a shot off an extra flipper only if that flipper did.
   const flipperKeys = new Set<string>(next.extraFlippers.map((f) => extraFlipperKey(f.id)))
-  const shotList = next.shots.map((s) => ({
+  const checkFeed = (feed: Feed | null) => {
+    const from = feed && merged.find((s) => s.id === feed.id)
+    return feed && from && canLeaveBy(from, feed.end) ? feed : null
+  }
+  const checkFlipper = (flipper: TargetFlipper) =>
+    flipper.startsWith('extra') && !flipperKeys.has(flipper) ? ('auto' as const) : flipper
+  const shotList = merged.map((s) => ({
     ...s,
-    link: s.link !== null && present.has(s.link) ? s.link : null,
-    feed: s.feed !== null && present.has(s.feed) ? s.feed : null,
-    flipper: s.flipper.startsWith('extra') && !flipperKeys.has(s.flipper) ? ('auto' as const) : s.flipper,
+    feed: checkFeed(s.feed),
+    flipper: checkFlipper(s.flipper),
+    exitOrigin: { ...s.exitOrigin, feed: checkFeed(s.exitOrigin.feed), flipper: checkFlipper(s.exitOrigin.flipper) },
   }))
 
   batch(() => {

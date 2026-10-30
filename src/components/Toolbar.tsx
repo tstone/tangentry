@@ -1,5 +1,7 @@
-import { Match, Show, Switch } from 'solid-js'
-import { addShot, selectedShot, shots } from '../state/shots'
+import { For, Match, Show, Switch } from 'solid-js'
+import { Portal } from 'solid-js/web'
+import { Menu } from '@ark-ui/solid/menu'
+import { addShot, selectedShot, shots, type ShotType } from '../state/shots'
 import { addReserved, reserved, selectedReservedId } from '../state/reserved'
 import { extraFlippers, selectedFlipperId } from '../state/extraFlippers'
 import { insertVia } from '../state/viaPoints'
@@ -8,6 +10,13 @@ import { runSmoothen, smoothing } from '../state/smoothenRun'
 import { busy, removeFocused } from '../state/removeFocused'
 import { log } from '../state/log'
 import ResetDialog from './ResetDialog'
+
+// The kinds of shot Add shot offers.
+const ADD_SHOT_OPTIONS: { label: string; value: ShotType; hint: string }[] = [
+  { label: 'Single ended', value: 'single', hint: 'Shot into at the entrance, left by the exit' },
+  { label: 'Double ended', value: 'double', hint: 'Shot into at either end, left by the other' },
+  { label: 'Ramp', value: 'ramp', hint: 'Single ended, and can pass over other lanes' },
+]
 
 /**
  * Tools down the left of the preview, under the zoom. The middle group acts on
@@ -19,9 +28,10 @@ export default function Toolbar() {
   const mech = () => reserved.find((a) => a.id === selectedReservedId())
   const flipper = () => extraFlippers.find((f) => f.id === selectedFlipperId())
 
-  const add = () => {
-    const id = addShot()
-    log(`Added ${shots.find((s) => s.id === id)?.name ?? 'a shot'}.`)
+  const add = (type: ShotType) => {
+    const id = addShot({ end: type === 'double' ? 'double' : 'open', ramp: type === 'ramp' })
+    const name = shots.find((s) => s.id === id)?.name ?? 'a shot'
+    log(`Added ${name}, ${ADD_SHOT_OPTIONS.find((o) => o.value === type)!.label.toLowerCase()}.`)
   }
   const addArea = () => {
     addReserved('circle')
@@ -49,20 +59,37 @@ export default function Toolbar() {
         </svg>
         Add custom mech
       </button>
-      <button
-        type="button"
-        class="preview-zoom-button toolbar-icon-button"
-        title="Add shot"
-        disabled={busy()}
-        onClick={add}
+      <Menu.Root
+        positioning={{ placement: 'right-start', gutter: 6 }}
+        onSelect={(details) => add(details.value as ShotType)}
       >
-        {/* A lane with a plus. */}
-        <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M2.5 13.5C2.5 8 6 4 11.5 3" />
-          <path d="M11.5 8.5v5M9 11h5" />
-        </svg>
-        Add shot
-      </button>
+        <Menu.Trigger
+          class="preview-zoom-button toolbar-icon-button"
+          title="Add a single-ended shot, double-ended shot or ramp"
+          disabled={busy()}
+        >
+          {/* A lane with a plus. */}
+          <svg class="toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 13.5C2.5 8 6 4 11.5 3" />
+            <path d="M11.5 8.5v5M9 11h5" />
+          </svg>
+          Add shot
+        </Menu.Trigger>
+        <Portal>
+          <Menu.Positioner>
+            <Menu.Content class="menu-content">
+              <For each={ADD_SHOT_OPTIONS}>
+                {(option) => (
+                  <Menu.Item value={option.value} class="menu-item">
+                    <span>{option.label}</span>
+                    <span class="menu-item-hint">{option.hint}</span>
+                  </Menu.Item>
+                )}
+              </For>
+            </Menu.Content>
+          </Menu.Positioner>
+        </Portal>
+      </Menu.Root>
       <button
         type="button"
         class="preview-zoom-button toolbar-icon-button"

@@ -1,7 +1,7 @@
 import { createMemo, createRoot, createSignal } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import { selectedSolutions, type BallState, type Solution } from './solutions'
-import type { FlipperKey } from './shots'
+import { selectedRuns, type BallState, type Solution } from './solutions'
+import type { FlipperKey, ShotEnd } from './shots'
 
 // What the shot paths are colored by:
 // - origin: how the ball arrived on the flipper (inlane or cradle)
@@ -36,13 +36,14 @@ const [visible, setVisible] = createStore<Record<Layer, boolean>>({
 
 export const showLayer = (layer: Layer, shown: boolean) => setVisible(layer, shown)
 
-// The path hovered in the shot list, which is called out on the playfield.
-export type PathKey = { flipper: FlipperKey; state: BallState }
+// The path hovered in the shot list, which is called out on the playfield:
+// into one end of the lane, off a flipper, arriving on it one way.
+export type PathKey = { end: ShotEnd; flipper: FlipperKey; state: BallState }
 const [hoveredPath, setHoveredPath] = createSignal<PathKey | null>(null)
 
-export const isHovered = (flipper: FlipperKey, state: BallState) => {
+export const isHovered = (end: ShotEnd, flipper: FlipperKey, state: BallState) => {
   const hovered = hoveredPath()
-  return hovered !== null && hovered.flipper === flipper && hovered.state === state
+  return hovered !== null && hovered.end === end && hovered.flipper === flipper && hovered.state === state
 }
 
 // An extra flipper under the mouse, on the playfield or in the sidebar,
@@ -66,7 +67,7 @@ export const speedRange = createRoot(() =>
   createMemo(() => {
     let min = Infinity
     let max = -Infinity
-    for (const flipper of selectedSolutions()) {
+    for (const flipper of selectedRuns().flatMap((run) => run.flippers)) {
       for (const s of Object.values(flipper.states)) {
         if (!s) continue
         for (const v of pathSpeeds(s)) {

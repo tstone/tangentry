@@ -132,12 +132,14 @@ const LEAD_IN_SPACING = 0.1
  * Center line of a lane from `start` heading along `startDir` to `end`
  * heading along `endDir`, passing through each of `via` in order.
  * Directions needn't be unit length. The lane runs straight for `leadIn`
- * inches before it starts to bend.
+ * inches before it starts to bend, and for `leadOut` inches into `end`.
  *
  * At a via point the lane heads parallel to the line from the point before
  * it to the point after (as in a Catmull-Rom spline), and each stretch
  * between points is blended like a lane with no via points. With G2 the
- * curvature is zero where stretches meet, so it stays continuous.
+ * curvature is zero where stretches meet, so it stays continuous. A via
+ * point's weight shapes both stretches either side of it, as the entrance
+ * and exit weights do theirs; it defaults to 1.
  */
 export function laneCenterLine(
   start: Point,
@@ -147,27 +149,33 @@ export function laneCenterLine(
   continuity: Continuity,
   weights: TangentWeights,
   leadIn = 0,
-  via: Point[] = [],
+  via: (Point & { weight?: number })[] = [],
+  leadOut = 0,
 ): CurveSample[] {
   const t0 = unit(startDir)
   const t1 = unit(endDir)
   const straight: { p: Point; t: Point }[] = []
   const count = Math.ceil(leadIn / LEAD_IN_SPACING)
   for (let i = 0; i < count; i++) straight.push({ p: add(start, scale(t0, (leadIn * i) / count)), t: t0 })
+  const bendEnd = add(end, scale(t1, -leadOut))
+  const straightOut: { p: Point; t: Point }[] = []
+  const outCount = Math.ceil(leadOut / LEAD_IN_SPACING)
+  for (let i = 1; i <= outCount; i++) straightOut.push({ p: add(bendEnd, scale(t1, (leadOut * i) / outCount)), t: t1 })
 
-  const points = [add(start, scale(t0, leadIn)), ...via, end]
+  const points: Point[] = [add(start, scale(t0, leadIn)), ...via.map((v) => ({ x: v.x, y: v.y })), bendEnd]
   const last = points.length - 1
   const tangents = points.map((_, i) => (i === 0 ? t0 : i === last ? t1 : unit(sub(points[i + 1], points[i - 1]))))
+  // Weight at each point: the entrance's, each via point's, then the exit's.
+  const pointWeights = [weights.entrance, ...via.map((v) => v.weight ?? 1), weights.exit]
   const blend = continuity === 'g1' ? biarc : quintic
   const bend: { p: Point; t: Point }[] = []
   for (let i = 0; i < last; i++) {
-    // The entrance and exit weights shape the first and last stretches.
-    const w = { entrance: i === 0 ? weights.entrance : 1, exit: i === last - 1 ? weights.exit : 1 }
+    const w = { entrance: pointWeights[i], exit: pointWeights[i + 1] }
     const stretch = blend(points[i], tangents[i], points[i + 1], tangents[i + 1], w, SAMPLES)
     // Each stretch starts where the last one ended; keep that point once.
     bend.push(...(i === 0 ? stretch : stretch.slice(1)))
   }
-  return withLength([...straight, ...bend])
+  return withLength([...straight, ...bend, ...straightOut])
 }
 
 // Spacing of samples around a horseshoe turn, inches.

@@ -712,7 +712,7 @@ export async function fitSketch(
     const shotFor = ({ horseshoe, ...params }: Params): Shot => ({
       ...shotDefaults(params.entrance),
       ...params,
-      via: params.via.map((v, i) => ({ id: -1 - i, x: v.x, y: v.y })),
+      via: params.via.map((v, i) => ({ id: -1 - i, x: v.x, y: v.y, weight: 1 })),
       ...(horseshoe ? { end: 'horseshoe' as const, horseshoe } : {}),
     })
     // Lanes are first fitted as drawn, then, if `avoid`, steered off space
@@ -720,8 +720,8 @@ export async function fitSketch(
     const evaluate = (target: Target, params: Params, avoid: boolean) => {
       const shot = shotFor(params)
       const analysis = target.feed
-        ? analyze(shot, target.feed.solved, null, target.feed.feeders)
-        : analyze(shot, solve(shot.entrance))
+        ? analyze(shot, target.feed)
+        : analyze(shot, { solved: solve(shot.entrance), feeders: [] })
       const lane = analysis.lane
       if (!lane) return { cost: Infinity, lane: null }
       const fit = fidelity(target.points, lane)
@@ -730,7 +730,7 @@ export async function fitSketch(
       const over = crossings(lane, obstacles, target.cut ? 1 : 3, Infinity)
       const safeCost = target.cut ? CUT_SAFE_COST : SAFE_COST
       const blocked = avoid ? safeCost * over.length.safe + LANE_COST * over.length.lane : 0
-      const misses = analysis.flippers.reduce(
+      const misses = analysis.runs.flatMap((r) => r.flippers).reduce(
         (n, f) => n + Object.values(f.states).filter((s) => s?.lane?.outcome === 'misses').length,
         0,
       )

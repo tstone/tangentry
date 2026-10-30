@@ -864,6 +864,35 @@ body {
   font-size: 0.7rem;
 }
 
+/* Menus off toolbar buttons, as Add shot's. */
+.menu-content {
+  min-width: 14rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+
+.menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.menu-item[data-highlighted] {
+  background: var(--muted);
+}
+
+.menu-item-hint {
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
 .select-field-content {
   padding: 0.25rem;
   border: 1px solid var(--border);
@@ -1062,13 +1091,41 @@ body {
 /* Like a hovered shot picker, shows the handle can be grabbed. */
 .shot-entrance:hover,
 .shot-exit:hover,
-.shot-exit-angle:hover {
+.shot-exit-angle:hover,
+.shot-entrance-angle:hover,
+.shot-entrance-slider:hover,
+.shot-via:hover,
+.shot-via-angle:hover {
   stroke: #fff;
   stroke-width: 2;
 }
 
-.shot-entrance {
+/* The bend point in focus, which Delete removes ahead of its shot. */
+.shot-via.is-focused {
+  stroke: #fff;
+  stroke-width: 2.5;
+}
+
+.shot-entrance,
+.shot-entrance-angle,
+.shot-entrance-slider {
   fill: #ff6bcb;
+}
+
+/* A slider's arrow is grabbed anywhere within its reach, not only on its shaft. */
+.shot-arrow .shot-arrow-hit {
+  fill: transparent;
+  stroke: none;
+}
+
+/* The width slider moves the lane's wall, so it's drawn in the wall's white. */
+.shot-width-slider {
+  fill: var(--fg);
+}
+
+.shot-width-slider:hover {
+  stroke: #ff6bcb;
+  stroke-width: 2;
 }
 
 .shot-exit,
@@ -1077,13 +1134,15 @@ body {
 }
 
 /* Between the entrance's pink and the exit's blue. */
-.shot-via {
+.shot-via,
+.shot-via-angle {
   fill: #b89cff;
 }
 
-/* An exit a direction handle would join to if let go. */
-.shot-exit.is-link-target {
-  stroke: #fff;
+/* A double-ended lane's exit is an entrance too: the entrance's pink, ringed in the exit's blue. */
+.shot-exit.is-double:not(:hover) {
+  fill: #ff6bcb;
+  stroke: #6bc5ff;
   stroke-width: 3;
 }
 
@@ -1092,7 +1151,31 @@ body {
   stroke-width: 1.5;
 }
 
-/* From the exit feeding a lane to its entrance. */
+.shot-entrance-direction {
+  stroke: #ff6bcb;
+  stroke-width: 1.5;
+}
+
+/* The entrance offset and lead-in sliders' tracks. */
+.shot-entrance-rail {
+  stroke: #ff6bcb;
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0.35;
+}
+
+.shot-entrance-guide {
+  stroke: #ff6bcb;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.shot-via-direction {
+  stroke: #b89cff;
+  stroke-width: 1.5;
+}
+
+/* From the lane end feeding a lane to the end it feeds. */
 .shot-feed {
   stroke: #6bc5ff;
   stroke-width: 1.5;
@@ -1105,11 +1188,6 @@ body {
   display: none;
 }
 
-/* A lane being dragged onto shows its exit to join to. */
-.shot-markers.is-link-target:not(.is-selected) {
-  display: inline;
-  opacity: 0.6;
-}
 
 .shot-lane-mounts .shot-lane:not(.is-selected) {
   display: none;
