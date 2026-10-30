@@ -6,7 +6,7 @@ import { inlanes } from './inlanes'
 import { ball } from './ball'
 import { walls } from './walls'
 import { selectedId, shots, type LaneAlignment, type Shot, type WallSide } from './shots'
-import { flexRestitution, wallStiffness, type MountKind } from '../physics/wall'
+import { flexPerSpeed, flexRestitution, wallStiffness, type MountKind } from '../physics/wall'
 import { INLANE_LENGTH, computeLayout, toRadians, type Side } from './layout'
 import { GRAVITY, rollingGravity, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
 import type { Point } from '../geometry/flipper'
@@ -165,6 +165,8 @@ export type LaneWall = {
   lengths: number[]
   // Fraction of the speed into the wall the ball bounces back with at each point.
   restitution: number[]
+  // How far the wall flexes at each point per in/s of speed into it, inches.
+  flexPerSpeed: number[]
   // Mounts where they sit on the wall, with the direction away from the lane.
   mounts: { id: number; kind: MountKind; point: Point; outward: Point }[]
 }
@@ -254,6 +256,7 @@ function analyze(shot: Shot): ShotAnalysis {
       points,
       lengths,
       restitution: stiffness.map((k) => walls.restitution * flexRestitution(k, mass)),
+      flexPerSpeed: stiffness.map((k) => flexPerSpeed(k, mass)),
       mounts: placed.map((m) => ({
         id: m.id,
         kind: m.kind,
@@ -262,8 +265,10 @@ function analyze(shot: Shot): ShotAnalysis {
       })),
     }
   })
-  const restitution = (offset: number, index: number) =>
-    laneWalls[WALL_SIDES.findIndex((w) => w.offset === offset)].restitution[index]
+  const response = (offset: number, index: number) => {
+    const wall = laneWalls[WALL_SIDES.findIndex((w) => w.offset === offset)]
+    return { restitution: wall.restitution[index], flexPerSpeed: wall.flexPerSpeed[index] }
+  }
 
   const flippers = solved.map((f) => ({
     ...f,
@@ -272,7 +277,7 @@ function analyze(shot: Shot): ShotAnalysis {
         state,
         s && {
           ...s,
-          lane: runLane(center, width, ballRadius, s.arrival, s.arrivalVelocity, gravity, restitution),
+          lane: runLane(center, width, ballRadius, s.arrival, s.arrivalVelocity, gravity, response),
         },
       ]),
     ) as Record<BallState, Solution | null>,

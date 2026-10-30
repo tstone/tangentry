@@ -31,10 +31,10 @@ import {
   selectedSolutions,
   type Solution,
 } from '../state/solutions'
-import { HIT_SEVERITY, type Continuity } from '../geometry/lane'
+import { isHit, type Continuity } from '../geometry/lane'
 import { isHovered, pathColor, setHoveredPath } from '../state/view'
 import type { Departure } from '../physics/shot'
-import { MOUNT_KINDS, type MountKind } from '../physics/wall'
+import { MAX_FLEX, MOUNT_KINDS, type MountKind } from '../physics/wall'
 import { suggestMounts } from '../state/mountSuggestions'
 import { insertVia } from '../state/viaPoints'
 import { formatDegrees, formatInches } from './Dimensions'
@@ -83,7 +83,8 @@ function SolutionDetails(props: { solution: Solution }) {
       <Show when={s().lane}>
         {(run) => {
           const entrySpeed = () => Math.hypot(s().arrivalVelocity.x, s().arrivalVelocity.y)
-          const hits = () => run().bounces.filter((b) => b.reboundSpeed >= HIT_SEVERITY.chatter).length
+          const hits = () => run().bounces.filter(isHit).length
+          const maxFlex = () => Math.max(0, ...run().bounces.map((b) => b.flex))
           return (
             <>
               <dt>Lane</dt>
@@ -113,6 +114,13 @@ function SolutionDetails(props: { solution: Solution }) {
               <Show when={hits() > 1}>
                 <dt>Hits</dt>
                 <dd>{hits()}</dd>
+              </Show>
+              <Show when={maxFlex() > 0}>
+                <dt>Wall flex</dt>
+                <dd>
+                  {formatInches(maxFlex())} at most
+                  <Show when={maxFlex() > MAX_FLEX}>, over the {formatInches(MAX_FLEX)} limit</Show>
+                </dd>
               </Show>
               <Show when={run().exitSpeed}>
                 {(speed) => (

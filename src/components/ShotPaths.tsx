@@ -4,7 +4,7 @@ import { ball } from '../state/ball'
 import { APPROACHES, BALL_STATES, OUTCOME_LABELS, selectedSolutions } from '../state/solutions'
 import { hoveredPath, isHovered, pathColor, pathColoring, speedColor } from '../state/view'
 import { flipperPath, type Point } from '../geometry/flipper'
-import { HIT_SEVERITY } from '../geometry/lane'
+import { isHit } from '../geometry/lane'
 
 const points = (list: Point[]) => list.map((p) => `${p.x},${p.y}`).join(' ')
 
@@ -101,10 +101,10 @@ export default function ShotPaths() {
                             {(b) => (
                               <circle
                                 class="shot-path-contact"
-                                classList={{ 'is-hit': b.reboundSpeed >= HIT_SEVERITY.chatter }}
+                                classList={{ 'is-hit': isHit(b) }}
                                 cx={b.wall.x}
                                 cy={b.wall.y}
-                                r={b.reboundSpeed >= HIT_SEVERITY.chatter ? 0.12 : 0.06}
+                                r={isHit(b) ? 0.12 : 0.06}
                               />
                             )}
                           </For>

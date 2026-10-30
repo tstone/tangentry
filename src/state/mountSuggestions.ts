@@ -4,13 +4,10 @@ import { playfield } from './playfield'
 import { walls } from './walls'
 import { setMounts, newMount, type WallMount } from './shots'
 import { WALL_SIDES, shotAnalyses } from './solutions'
-import { wallStiffness, type MountKind } from '../physics/wall'
+import { MAX_FLEX, flexPerSpeed, wallStiffness, type MountKind } from '../physics/wall'
 import { ballMass } from '../physics/drive'
 import { normal } from '../geometry/lane'
 
-// Mounts are suggested so that no part of a wall flexes further than this
-// when hit, inches. Further than this and the wall gets knocked out of line.
-const MAX_FLEX = 0.03
 // Speed into the wall (in/s) assumed everywhere, standing in for shots
 // that aren't modeled: balls coming back down the lane, nudges, other
 // shots crossing it.
@@ -88,11 +85,10 @@ export function suggestMounts(shotId: number) {
 
     while (placed.length < MAX_MOUNTS) {
       const stiffness = wallStiffness(wall.points, placed, walls)
-      // Peak flex of a spring hit at speed v: v·√(m/k).
       let worst = -1
       let worstFlex = MAX_FLEX
       stiffness.forEach((k, i) => {
-        const flex = load[i] * Math.sqrt(mass / k)
+        const flex = load[i] * flexPerSpeed(k, mass)
         if (flex > worstFlex) {
           worst = i
           worstFlex = flex

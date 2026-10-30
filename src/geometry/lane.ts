@@ -1,4 +1,5 @@
 import type { Point } from './flipper'
+import { MAX_FLEX } from '../physics/wall'
 
 // G1 keeps the tangent continuous; G2 also keeps the curvature continuous.
 export type Continuity = 'g1' | 'g2'
@@ -229,12 +230,14 @@ export type WallContact = {
   normalSpeed: number
   // Speed it bounces back off the wall with, in/s.
   reboundSpeed: number
+  // How far the wall flexes under the hit, inches.
+  flex: number
 }
 
 // How the ball gets through the lane, best to worst, judged by its hardest
 // bounce off a wall and by whether it bounces across the lane:
 // - smooth: only glancing contact
-// - chatter: light hits
+// - chatter: light hits, or a hit that flexes the wall more than MAX_FLEX
 // - ricochet: a hard hit, or one trip across to the other wall
 // - rattle: a very hard hit, or bouncing back and forth across the lane
 // - stalls: never makes it out of the exit
@@ -244,6 +247,14 @@ export type LaneOutcome = 'smooth' | 'chatter' | 'ricochet' | 'rattle' | 'stalls
 // outcome. Hitting a rigid wall that returns 60% of the speed, at 150 in/s
 // these are hits at roughly 6°, 14° and 24° to the wall.
 export const HIT_SEVERITY = { chatter: 9, ricochet: 21, rattle: 36 }
+
+/**
+ * Whether a contact counts as a hit rather than a glancing touch: it bounces
+ * back hard enough, or knocks the wall further than it should flex. A soft
+ * wall soaks up a hit, but that's no good if it bends out of line doing so.
+ */
+export const isHit = (contact: WallContact) =>
+  contact.reboundSpeed >= HIT_SEVERITY.chatter || contact.flex > MAX_FLEX
 
 export type LaneRun = {
   // Ball center from the entrance to where it leaves the lane, and its
@@ -265,15 +276,15 @@ const MAX_STEPS = 20000
 // Below this speed into a wall (in/s), the ball stays on it and rolls along it.
 const RIDE_SPEED = 2
 
-// Fraction of the speed into a wall the ball bounces back with, at a wall
-// side (1 or -1) and sample index.
-export type WallRestitution = (side: number, index: number) => number
+// How a wall responds where it's hit, at a wall side (1 or -1) and sample
+// index: the fraction of the speed into it the ball bounces back with, and
+// how far it flexes per in/s of that speed, inches.
+export type WallResponse = (side: number, index: number) => { restitution: number; flexPerSpeed: number }
 
 /**
  * Follow the ball through the lane from `position` with `velocity`, rolling
  * freely with `gravity` pulling toward +y and bouncing off the walls, which
- * return `restitution` of the speed into them where they're hit. Spin and wall friction are
- * ignored. Returns null if the lane is too narrow for the ball.
+ * respond to each hit as `wall` gives. Spin and wall friction are ignored. Returns null if the lane is too narrow for the ball.
  *
  * Each step the ball is placed relative to the center line. If it has gone
  * further to either side than the ball's center can reach, it has hit that
@@ -288,7 +299,7 @@ export function runLane(
   position: Point,
   velocity: Point,
   gravity: number,
-  restitution: WallRestitution,
+  wall: WallResponse,
 ): LaneRun | null {
   // The taper is linear, so the narrowest point is at one end.
   if (Math.min(width.entrance, width.exit) / 2 <= ballRadius || curve.length < 2) return null
@@ -353,7 +364,7 @@ export function runLane(
           ? 'rattle'
           : crossings === 1 || hardest >= HIT_SEVERITY.ricochet
             ? 'ricochet'
-            : hardest >= HIT_SEVERITY.chatter
+            : bounces.some(isHit)
               ? 'chatter'
               : 'smooth'
     return { path, speeds, firstTouch, bounces, outcome, exitSpeed }
@@ -390,8 +401,9 @@ export function runLane(
       if (into > 0) {
         const angle = Math.abs(Math.atan2(cross(here.tangent, v), dot(here.tangent, v)))
         const index = here.f < 0.5 ? here.i : here.i + 1
+        const response = wall(side, index)
         // Too gentle to bounce: the ball rolls along the wall.
-        const rebound = into < RIDE_SPEED ? 0 : restitution(side, index) * into
+        const rebound = into < RIDE_SPEED ? 0 : response.restitution * into
         const contact: WallContact = {
           wall: add(here.center, scale(here.n, side * here.halfWidth)),
           ball: p,
@@ -401,6 +413,7 @@ export function runLane(
           impactAngle: (Math.min(angle, Math.PI - angle) * 180) / Math.PI,
           normalSpeed: into,
           reboundSpeed: rebound,
+          flex: into * response.flexPerSpeed,
         }
         firstTouch ??= contact
         v = add(v, scale(inward, into + rebound))

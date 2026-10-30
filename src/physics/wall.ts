@@ -50,6 +50,9 @@ const BEARING_STIFFNESS = 1
 // a 12" wall held only at its ends keeps about 60% of its speed, a hit
 // beside a spike about 90%, and one at a spade bolt about 95%.
 const WALL_DAMPING = 0.06
+// Furthest a wall should flex when hit, inches. Further than this and the
+// wall gets knocked out of line and works its mounts loose.
+export const MAX_FLEX = 0.03
 // Shortest beam element, so folded walls don't divide by zero.
 const MIN_ELEMENT = 1e-3
 
@@ -134,6 +137,15 @@ export function wallStiffness(wall: Point[], mounts: Mount[], spec: WallSpec): n
     }
     return 1 / x[2 * node]
   })
+}
+
+/**
+ * How far a wall point with the given stiffness (g/s²) flexes per in/s of
+ * the ball's speed into it, inches. The peak flex of a spring hit at speed
+ * v is v·√(m/k).
+ */
+export function flexPerSpeed(stiffness: number, ballMass: number) {
+  return Math.sqrt(ballMass / stiffness)
 }
 
 /**
