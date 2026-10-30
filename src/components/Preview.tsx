@@ -169,6 +169,7 @@ export default function Preview() {
         <WallMounts />
         <ShotMarkers />
       </svg>
+      <h1 class="preview-title">Tangentry</h1>
       <div class="preview-zoom" role="group" aria-label="Zoom">
         <button type="button" class="preview-zoom-button" aria-label="Zoom out" title="Zoom out" onClick={zoomOut}>
           −

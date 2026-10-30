@@ -153,6 +153,21 @@ body {
 }
 
 /* Path coloring control, overlaid top right of the preview. */
+/* App name, overlaid top center of the preview. */
+.preview-title {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
 /* Zoom buttons, overlaid top left of the preview. */
 .preview-zoom {
   position: absolute;
