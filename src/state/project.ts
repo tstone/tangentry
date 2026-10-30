@@ -136,6 +136,8 @@ function readShot(input: unknown, path: string): Shot {
     })),
     mounts: { left: readMounts('left'), right: readMounts('right') },
     link: s.link,
+    // Missing from files saved before ramps.
+    ramp: s.ramp === true,
     // Missing from files saved before lanes could end in a horseshoe.
     end: s.end === undefined ? 'open' : oneOf(s.end, ['open', 'horseshoe'] as const, `${path}.end`),
     horseshoe:

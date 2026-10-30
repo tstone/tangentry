@@ -10,6 +10,7 @@ import { flexPerSpeed, flexRestitution, wallStiffness, type MountKind } from '..
 import { INLANE_LENGTH, computeLayout, toRadians, type Side } from './layout'
 import { GRAVITY, rollingGravity, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
 import type { Point } from '../geometry/flipper'
+import { polygonsOverlap } from '../geometry/overlap'
 import {
   appendTurn,
   runLane,
@@ -424,6 +425,30 @@ export const shotAnalyses = createRoot(() => {
   )
   return createMemo(() => list().map((analysis) => analysis()))
 })
+
+/**
+ * The other shots each shot's lane runs into, by id. Ramps pass over other
+ * lanes, and lanes joined at their exits are meant to meet, so neither
+ * counts.
+ */
+export const laneCrossings = createRoot(() =>
+  createMemo(() => {
+    const flat = shotAnalyses().flatMap((a) => {
+      const shot = shots.find((s) => s.id === a.id)
+      return a.lane && shot && !shot.ramp ? [{ shot, outline: laneOutline(a.lane) }] : []
+    })
+    const crossed = new Map<number, Shot[]>()
+    const add = (id: number, other: Shot) => crossed.set(id, [...(crossed.get(id) ?? []), other])
+    flat.forEach((a, i) => {
+      for (const b of flat.slice(i + 1)) {
+        if (a.shot.link === b.shot.id || !polygonsOverlap(a.outline, b.outline)) continue
+        add(a.shot.id, b.shot)
+        add(b.shot.id, a.shot)
+      }
+    })
+    return crossed
+  }),
+)
 
 /** The lane of the shot joined to `shotId`'s, as currently shaped. */
 export const joinedLane = (shotId: number) => {

@@ -66,6 +66,9 @@ export type Shot = {
   // What the lane does past its exit when it isn't joined to another.
   end: LaneEnd
   horseshoe: Horseshoe
+  // A ramp rises off the playfield, so it may pass over other lanes.
+  // Lanes on the playfield can't cross each other.
+  ramp: boolean
 }
 
 // Open lanes end at the exit; a horseshoe carries the lane on around a
@@ -120,6 +123,7 @@ export function addShot(options: NewShot = {}) {
     entranceWeight: 1,
     exitWeight: 1,
     alignment: 'cross-inlane',
+    ramp: false,
     entranceOffset: 0,
     leadIn: 0,
     funnelLength: Infinity,
@@ -253,6 +257,7 @@ export function updateShot(
       | 'entranceOffset'
       | 'leadIn'
       | 'funnelLength'
+      | 'ramp'
     >
   >,
 ) {

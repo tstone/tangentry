@@ -1,7 +1,7 @@
 import { For, Show, createMemo } from 'solid-js'
 import { playfield } from '../state/playfield'
 import { selectedId, setSelectedId, shots, updateMount, type WallMount, type WallSide } from '../state/shots'
-import { WALL_SIDES, laneOutline, shotAnalyses, type LaneWall } from '../state/solutions'
+import { WALL_SIDES, laneCrossings, laneOutline, shotAnalyses, type LaneWall } from '../state/solutions'
 import { reservedCrossedBy } from '../state/reserved'
 import type { Point } from '../geometry/flipper'
 import { startDrag } from './drag'
@@ -22,12 +22,13 @@ export default function ShotLanes() {
           <Show when={analysis.lane}>
             {(lane) => {
               const crossesReserved = createMemo(() => reservedCrossedBy(laneOutline(lane())).length > 0)
+              const crossesLane = () => laneCrossings().has(analysis.id)
               return (
                 <g
                   class="shot-lane"
                   classList={{
                     'is-selected': analysis.id === selectedId(),
-                    'is-invalid': lane().tooNarrow || lane().overRail > 0 || crossesReserved(),
+                    'is-invalid': lane().tooNarrow || lane().overRail > 0 || crossesReserved() || crossesLane(),
                   }}
                 >
                   <For each={lane().walls}>

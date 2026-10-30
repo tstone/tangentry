@@ -47,6 +47,8 @@ const RAIL_COST = 1000
 const FOLD_COST = 500
 // The path the entrance is lined up with is the one the lane is for.
 const ALIGNED_WEIGHT = 2
+// Closest the entrance offset comes to the most it can be, inches, either way.
+const OFFSET_MARGIN = 0.2
 // Furthest a bend point moves from where it was, inches, either way.
 const VIA_REACH = 2
 // Furthest a bend point added to lead into a horseshoe moves from where it
@@ -174,6 +176,8 @@ export async function smoothen(
   // the whole lane, however long it ends up.
   const laneLength = lane.exitDistance
   const maxOffset = Math.max(0, shot.entranceWidth / 2 - ball.diameter / 2)
+  // The entrance is kept back from the most it can be offset.
+  const offsetReach = Math.max(0, maxOffset - OFFSET_MARGIN)
   const horseshoe = shot.end === 'horseshoe' && shot.link === null
 
   const viaKnobs = (via: Params['via'], reach: (i: number) => number): Knob[] =>
@@ -192,9 +196,9 @@ export async function smoothen(
     {
       get: (p) => p.entranceOffset,
       set: (p, v) => ({ ...p, entranceOffset: v }),
-      min: -maxOffset,
-      max: maxOffset,
-      step: maxOffset / 4,
+      min: -offsetReach,
+      max: offsetReach,
+      step: offsetReach / 4,
       precision: INCH_PRECISION,
     },
     { get: (p) => p.leadIn, set: (p, v) => ({ ...p, leadIn: v }), min: 0, max: 8, step: 1, precision: INCH_PRECISION },

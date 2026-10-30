@@ -36,6 +36,7 @@ import {
   BALL_STATES,
   OUTCOME_LABELS,
   WALL_SIDES,
+  laneCrossings,
   laneOutline,
   selectedAnalysis,
   selectedSolutions,
@@ -212,6 +213,11 @@ function LaneNotes(props: { shot: Shot }) {
           </Show>
           <Show when={reservedCrossedBy(laneOutline(l())).map((a) => a.name || 'a reserved area').join(', ')}>
             {(names) => <p class="shot-solution-none">The lane runs into {names()}.</p>}
+          </Show>
+          <Show when={laneCrossings().get(props.shot.id)?.map((s) => s.name || 'another lane').join(', ')}>
+            {(names) => (
+              <p class="shot-solution-none">The lane crosses {names()}. Only ramps can pass over other lanes.</p>
+            )}
           </Show>
           <p class="shot-solution-note">
             <Show when={Number.isFinite(l().tightest.radius)} fallback="Straight lane">
@@ -637,6 +643,15 @@ function ShotCard(props: { shot: Shot }) {
         </Show>
 
         <h4 class="sidebar-heading">Lane</h4>
+        <label class="checkbox-field">
+          <input
+            type="checkbox"
+            checked={props.shot.ramp}
+            onChange={(e) => updateShot(props.shot.id, { ramp: e.currentTarget.checked })}
+          />
+          Ramp
+        </label>
+        <p class="field-note">A ramp can pass over other lanes; lanes on the playfield can't cross.</p>
         <SelectField
           label="Continuity"
           options={CONTINUITY_OPTIONS}

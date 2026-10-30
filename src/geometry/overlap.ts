@@ -33,9 +33,19 @@ function segmentDistance(p: Point, a: Point, b: Point) {
 
 const edges = (polygon: Point[]) => polygon.map((p, i) => [p, polygon[(i + 1) % polygon.length]] as const)
 
+function bounds(polygon: Point[]) {
+  const xs = polygon.map((p) => p.x)
+  const ys = polygon.map((p) => p.y)
+  return { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) }
+}
+
 /** Whether two polygons share any area: their edges cross, or one holds the other. */
 export function polygonsOverlap(a: Point[], b: Point[]) {
   if (a.length < 3 || b.length < 3) return false
+  // Most pairs are nowhere near each other; skip comparing every edge.
+  const ab = bounds(a)
+  const bb = bounds(b)
+  if (ab.right < bb.left || bb.right < ab.left || ab.bottom < bb.top || bb.bottom < ab.top) return false
   const bEdges = edges(b)
   if (edges(a).some(([p, q]) => bEdges.some(([r, s]) => segmentsCross(p, q, r, s)))) return true
   return insidePolygon(a[0], b) || insidePolygon(b[0], a)
