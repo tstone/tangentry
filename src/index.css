@@ -1090,3 +1090,61 @@ body {
   gap: 0.75rem;
   margin-top: 0.75rem;
 }
+
+/* Reserved areas */
+.reserved-add {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.reserved-intro {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.reserved-name {
+  width: 12rem;
+}
+
+.reserved-shape {
+  fill: rgba(255, 170, 60, 0.12);
+  stroke: #ffaa3c;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.reserved-area.is-selected .reserved-shape {
+  fill: rgba(255, 170, 60, 0.22);
+  stroke-dasharray: none;
+}
+
+.reserved-label {
+  fill: #ffaa3c;
+  font-size: 0.7px;
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
+}
+
+.reserved-handle {
+  stroke: var(--bg);
+  stroke-width: 1.5;
+  cursor: grab;
+  touch-action: none;
+}
+
+.reserved-handle:active {
+  cursor: grabbing;
+}
+
+.reserved-move {
+  fill: #ffaa3c;
+}
+
+.reserved-point {
+  fill: #ffd08a;
+}
+
+.reserved-handles:not(.is-selected) {
+  opacity: 0.45;
+}

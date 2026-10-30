@@ -288,6 +288,9 @@ export function shapeLane(shot: Shot, solved: FlipperSolutions[]): Lane | null {
   }
 }
 
+/** Closed outline of the space a lane takes up: along one wall and back down the other. */
+export const laneOutline = (lane: Lane) => [...lane.walls[0].points, ...[...lane.walls[1].points].reverse()]
+
 const wallOn = (lane: Lane, offset: number) => lane.walls[WALL_SIDES.findIndex((w) => w.offset === offset)]
 
 /**

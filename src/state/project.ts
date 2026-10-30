@@ -6,6 +6,7 @@ import { playfield, setPlayfield, type Playfield } from './playfield'
 import { walls, setWalls, type Walls } from './walls'
 import { clearPlayfieldImage } from './playfieldImage'
 import { replaceShots, shots, type LaneAlignment, type Shot, type WallMount } from './shots'
+import { replaceReserved, reserved, type ReservedArea } from './reserved'
 import { COILS, MATERIALS } from '../physics/drive'
 import { MOUNT_KINDS, WALL_MATERIALS } from '../physics/wall'
 
@@ -27,6 +28,8 @@ export type ProjectFile = {
   walls: Walls
   // JSON has no Infinity, so a funnel spread over the whole lane is null.
   shots: (Omit<Shot, 'funnelLength'> & { funnelLength: number | null })[]
+  // Missing from files saved before reserved areas existed.
+  reserved?: ReservedArea[]
 }
 
 // Deep copy of a store's contents, free of Solid's proxies.
@@ -45,6 +48,7 @@ export function exportProject(): ProjectFile {
       ...plain(shot),
       funnelLength: Number.isFinite(shot.funnelLength) ? shot.funnelLength : null,
     })),
+    reserved: plain(reserved),
   }
 }
 
@@ -135,6 +139,26 @@ function readShot(input: unknown, path: string): Shot {
   }
 }
 
+function readReserved(input: unknown, path: string): ReservedArea {
+  const r = object(input, path)
+  const id = number(r.id, `${path}.id`)
+  const name = typeof r.name === 'string' ? r.name : `Reserved ${id}`
+  if (r.kind === 'circle') {
+    return { id, name, kind: 'circle', center: point(r.center, `${path}.center`), radius: number(r.radius, `${path}.radius`) }
+  }
+  oneOf(r.kind, ['circle', 'polygon'] as const, `${path}.kind`)
+  if (!Array.isArray(r.points)) throw new Error(`${path}.points should be a list.`)
+  return {
+    id,
+    name,
+    kind: 'polygon',
+    points: r.points.map((p, i) => ({
+      id: number(object(p, `${path}.points[${i}]`).id, `${path}.points[${i}].id`),
+      ...point(p, `${path}.points[${i}]`),
+    })),
+  }
+}
+
 /**
  * Load a project file's settings and shots into the app, replacing what's
  * there. Throws, leaving everything as it was, if the file can't be read.
@@ -168,6 +192,11 @@ export function importProject(json: string) {
       if (!Array.isArray(file.shots)) throw new Error('shots should be a list.')
       return file.shots.map((s, i) => readShot(s, `shots[${i}]`))
     })(),
+    reserved: (() => {
+      if (file.reserved === undefined) return []
+      if (!Array.isArray(file.reserved)) throw new Error('reserved should be a list.')
+      return file.reserved.map((r, i) => readReserved(r, `reserved[${i}]`))
+    })(),
   }
 
   // A join only holds if both lanes made it into the file.
@@ -182,6 +211,7 @@ export function importProject(json: string) {
     setBall(next.ball)
     setWalls(next.walls)
     replaceShots(shotList)
+    replaceReserved(next.reserved)
   })
 }
 

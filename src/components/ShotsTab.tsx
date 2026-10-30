@@ -28,6 +28,7 @@ import {
   BALL_STATES,
   OUTCOME_LABELS,
   WALL_SIDES,
+  laneOutline,
   selectedAnalysis,
   selectedSolutions,
   type Solution,
@@ -38,6 +39,7 @@ import type { Departure } from '../physics/shot'
 import { MAX_FLEX, MOUNT_KINDS, type MountKind } from '../physics/wall'
 import { suggestMounts } from '../state/mountSuggestions'
 import { insertVia } from '../state/viaPoints'
+import { reservedCrossedBy } from '../state/reserved'
 import { smoothen, type SmoothenResult } from '../state/smoothen'
 import { formatDegrees, formatInches } from './Dimensions'
 
@@ -199,6 +201,9 @@ function LaneNotes(props: { shot: Shot }) {
           </Show>
           <Show when={l().overRail > 0}>
             <p class="shot-solution-none">A wall runs {formatInches(l().overRail)} past the side rail.</p>
+          </Show>
+          <Show when={reservedCrossedBy(laneOutline(l())).map((a) => a.name || 'a reserved area').join(', ')}>
+            {(names) => <p class="shot-solution-none">The lane runs into {names()}.</p>}
           </Show>
           <p class="shot-solution-note">
             <Show when={Number.isFinite(l().tightest.radius)} fallback="Straight lane">

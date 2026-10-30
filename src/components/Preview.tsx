@@ -10,6 +10,7 @@ import Annotations from './Annotations'
 import { DimensionMarkers } from './Dimensions'
 import PathColoringControl from './PathColoringControl'
 import ProjectDialog from './ProjectDialog'
+import ReservedAreas, { ReservedMarkers } from './ReservedAreas'
 import ShotLanes, { WallMounts } from './ShotLanes'
 import ShotMarkers from './ShotMarkers'
 import ShotPaths from './ShotPaths'
@@ -164,11 +165,13 @@ export default function Preview() {
             )}
           </Index>
         </g>
+        <ReservedAreas />
         <Annotations flippers={layout().flippers} />
         <ShotLanes />
         <ShotPaths />
         <WallMounts />
         <ShotMarkers />
+        <ReservedMarkers />
       </svg>
       <h1 class="preview-title">Tangentry</h1>
       <div class="preview-zoom" role="group" aria-label="Zoom">

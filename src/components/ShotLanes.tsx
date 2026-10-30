@@ -1,7 +1,8 @@
-import { For, Show } from 'solid-js'
+import { For, Show, createMemo } from 'solid-js'
 import { playfield } from '../state/playfield'
 import { selectedId, setSelectedId, shots, updateMount, type WallMount, type WallSide } from '../state/shots'
-import { WALL_SIDES, shotAnalyses, type LaneWall } from '../state/solutions'
+import { WALL_SIDES, laneOutline, shotAnalyses, type LaneWall } from '../state/solutions'
+import { reservedCrossedBy } from '../state/reserved'
 import type { Point } from '../geometry/flipper'
 import { startDrag } from './drag'
 
@@ -19,18 +20,24 @@ export default function ShotLanes() {
       <For each={shotAnalyses()}>
         {(analysis) => (
           <Show when={analysis.lane}>
-            {(lane) => (
-              <g
-                class="shot-lane"
-                classList={{ 'is-selected': analysis.id === selectedId(), 'is-invalid': lane().tooNarrow || lane().overRail > 0 }}
-              >
-                <For each={lane().walls}>
-                  {(wall) => (
-                    <polyline class="shot-lane-wall" points={points(wall.points)} vector-effect="non-scaling-stroke" />
-                  )}
-                </For>
-              </g>
-            )}
+            {(lane) => {
+              const crossesReserved = createMemo(() => reservedCrossedBy(laneOutline(lane())).length > 0)
+              return (
+                <g
+                  class="shot-lane"
+                  classList={{
+                    'is-selected': analysis.id === selectedId(),
+                    'is-invalid': lane().tooNarrow || lane().overRail > 0 || crossesReserved(),
+                  }}
+                >
+                  <For each={lane().walls}>
+                    {(wall) => (
+                      <polyline class="shot-lane-wall" points={points(wall.points)} vector-effect="non-scaling-stroke" />
+                    )}
+                  </For>
+                </g>
+              )
+            }}
           </Show>
         )}
       </For>
