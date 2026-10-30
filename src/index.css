@@ -460,8 +460,8 @@ body {
 
 .project-dialog {
   display: flex;
-  width: min(48rem, 100%);
-  height: min(36rem, 100%);
+  width: min(56rem, 100%);
+  height: min(42rem, 100%);
   box-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -594,6 +594,71 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.project-export-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.5rem;
+}
+
+.project-formats {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.project-format {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  max-width: 14rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-format:hover {
+  border-color: var(--fg-muted);
+  color: var(--fg);
+}
+
+.project-format[aria-checked='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  color: var(--fg);
+}
+
+.project-format:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.project-format-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.project-format-note {
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
+.project-drawing-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow: auto;
+}
+
+.project-drawing-parts .switch-field {
+  font-size: 1rem;
 }
 
 .project-json {
