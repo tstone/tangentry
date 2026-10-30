@@ -140,13 +140,16 @@ export default function ProjectDialog() {
   const [open, setOpen] = createSignal(false)
   const [error, setError] = createSignal<string | null>(null)
 
-  const load = async (file: File) => {
+  const [pasted, setPasted] = createSignal('')
+
+  // `fileName` is left out for pasted JSON.
+  const load = (json: string, fileName?: string) => {
     try {
-      importProject(await file.text())
-      log(`Imported project ${file.name}.`)
+      importProject(json)
+      log(fileName ? `Imported project ${fileName}.` : 'Imported project from pasted JSON.')
       setOpen(false)
     } catch (e) {
-      setError(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
+      setError(`${fileName ?? 'Pasted JSON'}: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
@@ -159,6 +162,7 @@ export default function ProjectDialog() {
       onOpenChange={(details) => {
         setOpen(details.open)
         setError(null)
+        setPasted('')
       }}
     >
       <Dialog.Trigger class="preview-zoom-button project-trigger">Import / Export</Dialog.Trigger>
@@ -185,16 +189,17 @@ export default function ProjectDialog() {
 
               <Tabs.Content class="project-tab-content" value="import">
                 <p class="project-note">
-                  Load a project from a JSON file. Its settings and shots replace everything currently set up.
+                  Load a project from a JSON file, or paste its JSON. Its settings and shots replace everything currently set
+                  up.
                 </p>
                 <FileUpload.Root
                   class="project-upload"
                   accept={['application/json', '.json']}
                   maxFiles={1}
-                  onFileAccept={(details) => {
+                  onFileAccept={async (details) => {
                     setError(null)
                     const file = details.files[0]
-                    if (file) load(file)
+                    if (file) load(await file.text(), file.name)
                   }}
                   onFileReject={() => setError('Choose a single .json file.')}
                 >
@@ -204,6 +209,26 @@ export default function ProjectDialog() {
                   </FileUpload.Dropzone>
                   <FileUpload.HiddenInput />
                 </FileUpload.Root>
+                <form
+                  class="project-paste"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    setError(null)
+                    load(pasted())
+                  }}
+                >
+                  <textarea
+                    class="project-json project-paste-input"
+                    aria-label="Project JSON"
+                    placeholder="…or paste project JSON here"
+                    spellcheck={false}
+                    value={pasted()}
+                    onInput={(e) => setPasted(e.currentTarget.value)}
+                  />
+                  <button type="submit" class="wall-mount-add" disabled={!pasted().trim()}>
+                    Import pasted JSON
+                  </button>
+                </form>
                 <Show when={error()}>{(message) => <p class="project-error">{message()}</p>}</Show>
               </Tabs.Content>
 

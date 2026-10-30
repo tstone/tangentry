@@ -584,6 +584,30 @@ body {
   color: #ff6b6b;
 }
 
+.project-paste {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.project-paste .wall-mount-add {
+  align-self: flex-end;
+}
+
+.project-paste-input {
+  min-height: 8rem;
+  color: var(--fg);
+  font-family: monospace;
+  resize: none;
+}
+
+.project-paste-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
 .project-error {
   margin: 0;
   color: #ff6b6b;
