@@ -3,18 +3,27 @@ import SelectField from './SelectField'
 import { playfield, setPlayfield } from '../state/playfield'
 import {
   flippers,
+  mass,
   setFlippers,
   setSpacingMode,
+  unloadedStrokeMs,
   type Alignment,
   type SpacingMode,
 } from '../state/flippers'
 import { inlanes, setInlanes } from '../state/inlanes'
+import { ball, setBall } from '../state/ball'
+import { walls, setWalls } from '../state/walls'
+import { COILS, MATERIALS, type CoilId, type MaterialId } from '../physics/drive'
 
 const ALIGNMENT_OPTIONS: { label: string; value: Alignment }[] = [
   { label: 'Top edge', value: 'top' },
   { label: 'Centered', value: 'centered' },
   { label: 'Bottom edge (flopped)', value: 'flopped' },
 ]
+
+const COIL_OPTIONS: { label: string; value: CoilId }[] = COILS.map((c) => ({ label: c.label, value: c.id }))
+
+const MATERIAL_OPTIONS: { label: string; value: MaterialId }[] = MATERIALS.map((m) => ({ label: m.label, value: m.id }))
 
 const SPACING_OPTIONS: { label: string; value: SpacingMode }[] = [
   { label: 'Distance between pivots', value: 'pivots' },
@@ -113,7 +122,7 @@ export default function SetupTab() {
           unit="in"
           min={0.05}
           max={5}
-          step={0.0625}
+          step={0.0025}
           value={flippers.baseRadius}
           highlight="flippers.baseRadius"
           onChange={(baseRadius) => setFlippers('baseRadius', baseRadius)}
@@ -123,7 +132,7 @@ export default function SetupTab() {
           unit="in"
           min={0.05}
           max={5}
-          step={0.0625}
+          step={0.0025}
           value={flippers.tipRadius}
           highlight="flippers.tipRadius"
           onChange={(tipRadius) => setFlippers('tipRadius', tipRadius)}
@@ -133,10 +142,79 @@ export default function SetupTab() {
           unit="in"
           min={0.125}
           max={20}
-          step={0.125}
+          step={0.01}
           value={flippers.length}
           highlight="flippers.length"
           onChange={(length) => setFlippers('length', length)}
+        />
+        <NumberField
+          label="Rubber thickness"
+          unit="in"
+          min={0}
+          max={1}
+          step={0.01}
+          value={flippers.rubberThickness}
+          highlight="flippers.rubberThickness"
+          onChange={(rubberThickness) => setFlippers('rubberThickness', rubberThickness)}
+        />
+        <SelectField
+          label="Material"
+          options={MATERIAL_OPTIONS}
+          value={flippers.material}
+          onChange={(material) => setFlippers('material', material)}
+        />
+        <p class="field-note">Flipper mass: {(mass() / 28.3495).toFixed(2)} oz</p>
+        <NumberField
+          label="Rubber friction"
+          unit="μ"
+          min={0}
+          max={1.5}
+          step={0.05}
+          value={flippers.friction}
+          onChange={(friction) => setFlippers('friction', friction)}
+        />
+      </section>
+
+      <section class="sidebar-section">
+        <h2 class="sidebar-heading">Flipper Motion</h2>
+        <NumberField
+          label="Stroke angle"
+          unit="°"
+          min={1}
+          max={120}
+          step={1}
+          value={flippers.strokeAngle}
+          highlight="flippers.strokeAngle"
+          onChange={(strokeAngle) => setFlippers('strokeAngle', strokeAngle)}
+        />
+        <SelectField
+          label="Coil"
+          options={COIL_OPTIONS}
+          value={flippers.coil}
+          onChange={(coil) => setFlippers('coil', coil)}
+        />
+        <p class="field-note">Unloaded stroke: {Math.round(unloadedStrokeMs())} ms</p>
+      </section>
+
+      <section class="sidebar-section">
+        <h2 class="sidebar-heading">Ball</h2>
+        <NumberField
+          label="Diameter"
+          unit="in"
+          min={0.25}
+          max={3}
+          step={0.0625}
+          value={ball.diameter}
+          onChange={(diameter) => setBall('diameter', diameter)}
+        />
+        <NumberField
+          label="Inlane entry speed"
+          unit="in/s"
+          min={0}
+          max={500}
+          step={1}
+          value={ball.inlaneSpeed}
+          onChange={(inlaneSpeed) => setBall('inlaneSpeed', inlaneSpeed)}
         />
       </section>
 
@@ -151,6 +229,19 @@ export default function SetupTab() {
           value={inlanes.angle}
           highlight="inlanes.angle"
           onChange={(angle) => setInlanes('angle', angle)}
+        />
+      </section>
+
+      <section class="sidebar-section">
+        <h2 class="sidebar-heading">Lane Walls</h2>
+        <NumberField
+          label="Bounciness"
+          unit="e"
+          min={0}
+          max={1}
+          step={0.05}
+          value={walls.restitution}
+          onChange={(restitution) => setWalls('restitution', restitution)}
         />
       </section>
     </>

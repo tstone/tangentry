@@ -12,6 +12,8 @@ export type HighlightKey =
   | 'flippers.baseRadius'
   | 'flippers.tipRadius'
   | 'flippers.length'
+  | 'flippers.rubberThickness'
+  | 'flippers.strokeAngle'
   | 'inlanes.angle'
 
 const [highlight, setHighlight] = createSignal<HighlightKey | null>(null)

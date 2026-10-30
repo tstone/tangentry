@@ -1,5 +1,5 @@
 import { playfield } from './playfield'
-import { flippers, pivotSpacing, restAngle } from './flippers'
+import { centerDistance, contactBaseRadius, flippers, pivotSpacing, restAngle } from './flippers'
 import { inlanes } from './inlanes'
 import { flipperPivots, inlaneGuide, type Point } from '../geometry/flipper'
 
@@ -41,11 +41,11 @@ export function computeLayout(): { flippers: FlipperLayout[] } {
       side,
       pivot,
       tip: {
-        x: pivot.x + flippers.length * Math.cos(angle),
-        y: pivot.y + flippers.length * Math.sin(angle),
+        x: pivot.x + centerDistance() * Math.cos(angle),
+        y: pivot.y + centerDistance() * Math.sin(angle),
       },
       angle,
-      guide: inlaneGuide(pivot, flippers.baseRadius, inlane, INLANE_LENGTH, side),
+      guide: inlaneGuide(pivot, contactBaseRadius(), inlane, INLANE_LENGTH, side),
       inlaneAngle: side === 'left' ? inlane : Math.PI - inlane,
     }
   }

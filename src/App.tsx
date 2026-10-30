@@ -13,7 +13,10 @@ export default function App() {
       ]}
     >
       <Splitter.Panel id="sidebar" class="app-panel">
-        <Sidebar />
+        {/* The splitter hides panel overflow, so the sidebar scrolls inside its own box. */}
+        <div class="app-panel-scroll">
+          <Sidebar />
+        </div>
       </Splitter.Panel>
       <Splitter.ResizeTrigger id="sidebar:preview" class="app-resize" aria-label="Resize sidebar" />
       <Splitter.Panel id="preview" class="app-panel">

@@ -31,8 +31,9 @@ body,
   height: 100%;
 }
 
-.app-panel {
-  overflow: auto;
+.app-panel-scroll {
+  height: 100%;
+  overflow-y: auto;
 }
 
 .app-resize {
@@ -80,6 +81,13 @@ body,
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+/* Derived value shown under a field. */
+.field-note {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
 }
 
 .number-field-control {
@@ -133,8 +141,65 @@ body,
 
 /* Preview */
 .preview {
+  position: relative;
   height: 100%;
   padding: 1.5rem;
+}
+
+/* Path coloring control, overlaid top right of the preview. */
+.path-coloring {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 12rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.path-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.path-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.path-legend-swatch {
+  width: 0.9rem;
+  height: 0.25rem;
+  border-radius: 2px;
+  background: var(--path-color);
+}
+
+.path-legend-speed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.path-legend-gradient {
+  height: 0.4rem;
+  border-radius: 2px;
+}
+
+.path-legend-range {
+  display: flex;
+  justify-content: space-between;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
 }
 
 .preview-canvas {
@@ -164,6 +229,13 @@ body,
   fill: rgba(255, 184, 107, 0.15);
   stroke: #ffb86b;
   stroke-width: 1.5;
+}
+
+.flipper-insert {
+  fill: rgba(255, 184, 107, 0.15);
+  stroke: #ffb86b;
+  stroke-width: 1;
+  stroke-opacity: 0.6;
 }
 
 /* SelectField */
@@ -317,4 +389,296 @@ body,
 
 .sidebar-tab-content:focus-visible {
   outline: none;
+}
+
+/* Shots */
+.shots-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-empty {
+  margin: 0;
+  padding: 1rem;
+  color: var(--fg-muted);
+}
+
+.shot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.shot-name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.shot-handle {
+  stroke: var(--bg);
+  stroke-width: 1.5;
+  cursor: grab;
+  touch-action: none;
+}
+
+.shot-handle:active {
+  cursor: grabbing;
+}
+
+.shot-entrance {
+  fill: #ff6bcb;
+}
+
+.shot-exit,
+.shot-exit-angle {
+  fill: #6bc5ff;
+}
+
+.shot-exit-direction {
+  stroke: #6bc5ff;
+  stroke-width: 1.5;
+}
+
+.shot-markers:not(.is-selected) {
+  opacity: 0.45;
+}
+
+/* Shot lanes */
+.shot-lane {
+  opacity: 0.45;
+}
+
+.shot-lane.is-selected {
+  opacity: 1;
+}
+
+.shot-lane-wall {
+  fill: none;
+  stroke: var(--fg);
+  stroke-width: 2;
+}
+
+.shot-lane.is-too-narrow .shot-lane-wall {
+  stroke: #ff6b6b;
+}
+
+.shot-lane-center {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+/* Shot solutions */
+.shot-state {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border-left: 3px solid var(--path-color);
+  border-radius: 0 4px 4px 0;
+}
+
+/* How the ball arrived on the flipper. */
+.origin--inlane {
+  --path-color: #6be3a4;
+}
+
+.origin--cradle {
+  --path-color: #c792ea;
+}
+
+/* How the ball gets through the lane, green (smooth) to red (rattles). */
+.outcome--none,
+.outcome--stalls {
+  --path-color: var(--fg-muted);
+}
+
+.outcome--smooth {
+  --path-color: #6be3a4;
+}
+
+.outcome--chatter {
+  --path-color: #f5d76e;
+}
+
+.outcome--ricochet {
+  --path-color: #ffa45c;
+}
+
+.outcome--rattle {
+  --path-color: #ff6b6b;
+}
+
+.shot-outcome {
+  color: var(--path-color);
+  font-weight: 600;
+}
+
+.shot-state-label {
+  font-weight: 600;
+  color: var(--path-color);
+}
+
+.shot-solution {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.75rem;
+  margin: 0;
+}
+
+.shot-solution dt {
+  color: var(--fg-muted);
+}
+
+.shot-solution dd {
+  margin: 0;
+}
+
+.shot-solution-note,
+.shot-solution-none {
+  margin: 0;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.shot-path-flight {
+  fill: none;
+  stroke: var(--path-color);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.shot-path-ride {
+  fill: none;
+  stroke: var(--path-color);
+  stroke-width: 2;
+}
+
+.shot-path-flipper {
+  fill: none;
+  stroke: var(--path-color);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.shot-path-ball {
+  fill: none;
+  stroke: var(--path-color);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+.shot-path-departure {
+  fill: var(--path-color);
+}
+
+.shot-path-contact {
+  fill: var(--path-color);
+  opacity: 0.6;
+}
+
+.shot-path-contact.is-hit {
+  opacity: 1;
+  stroke: var(--bg);
+  stroke-width: 0.03;
+}
+
+/* Shot list selection */
+.shot-card.is-selected {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.shot-select {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shot-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.shot-card:not(.is-selected) .shot-name {
+  color: var(--fg-muted);
+}
+
+.shot-card:not(.is-selected) .shot-select:hover .shot-name {
+  color: var(--fg);
+}
+
+.shot-summary {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+
+.shot-path--backhand .shot-path-flight {
+  stroke-dasharray: 1.5 3;
+  stroke-linecap: round;
+}
+
+/* Speed coloring: solid segments, each colored by the ball's speed there. */
+.shot-path-flight.is-speed,
+.shot-path-ride.is-speed {
+  stroke-dasharray: none;
+  stroke-linecap: round;
+  stroke-width: 2.5;
+}
+
+/* Hovering a result in the shot list calls out its path. */
+.shot-path {
+  transition: opacity 0.1s;
+}
+
+.shot-paths.has-hover .shot-path:not(.is-hovered) {
+  opacity: 0.12;
+}
+
+.shot-path.is-hovered .shot-path-flight,
+.shot-path.is-hovered .shot-path-ride {
+  stroke-width: 3.5;
+}
+
+.shot-state.is-hovered {
+  background: var(--border);
 }

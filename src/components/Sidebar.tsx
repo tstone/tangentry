@@ -1,5 +1,6 @@
 import { Tabs } from '@ark-ui/solid/tabs'
 import SetupTab from './SetupTab'
+import ShotsTab from './ShotsTab'
 
 export default function Sidebar() {
   return (
@@ -16,7 +17,9 @@ export default function Sidebar() {
       <Tabs.Content class="sidebar-tab-content" value="setup">
         <SetupTab />
       </Tabs.Content>
-      <Tabs.Content class="sidebar-tab-content" value="shots" />
+      <Tabs.Content class="sidebar-tab-content" value="shots">
+        <ShotsTab />
+      </Tabs.Content>
     </Tabs.Root>
   )
 }

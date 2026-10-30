@@ -1,11 +1,15 @@
 import { Index, createMemo } from 'solid-js'
 import { playfield } from '../state/playfield'
-import { flippers } from '../state/flippers'
+import { centerDistance, contactBaseRadius, contactTipRadius, flippers } from '../state/flippers'
 import { highlight } from '../state/highlight'
 import { computeLayout } from '../state/layout'
 import { flipperPath } from '../geometry/flipper'
 import Annotations from './Annotations'
 import { DimensionMarkers } from './Dimensions'
+import PathColoringControl from './PathColoringControl'
+import ShotLanes from './ShotLanes'
+import ShotMarkers from './ShotMarkers'
+import ShotPaths from './ShotPaths'
 
 // Margin around the playfield, in inches (the SVG's user units).
 const PADDING = 2
@@ -55,7 +59,12 @@ export default function Preview() {
                 />
                 <path
                   class="flipper"
-                  d={flipperPath(f().pivot, flippers.baseRadius, flippers.tipRadius, flippers.length, f().angle)}
+                  d={flipperPath(f().pivot, contactBaseRadius(), contactTipRadius(), centerDistance(), f().angle)}
+                  vector-effect="non-scaling-stroke"
+                />
+                <path
+                  class="flipper-insert"
+                  d={flipperPath(f().pivot, flippers.baseRadius, flippers.tipRadius, centerDistance(), f().angle)}
                   vector-effect="non-scaling-stroke"
                 />
                 <circle
@@ -70,7 +79,11 @@ export default function Preview() {
           </Index>
         </g>
         <Annotations flippers={layout().flippers} />
+        <ShotLanes />
+        <ShotPaths />
+        <ShotMarkers />
       </svg>
+      <PathColoringControl />
     </div>
   )
 }

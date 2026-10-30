@@ -1,10 +1,10 @@
 import { Index, Match, Switch } from 'solid-js'
 import { highlight } from '../state/highlight'
 import { playfield } from '../state/playfield'
-import { flippers } from '../state/flippers'
+import { centerDistance, contactBaseRadius, contactTipRadius, flippers } from '../state/flippers'
 import { inlanes } from '../state/inlanes'
 import { INLANE_LENGTH, toRadians, type FlipperLayout } from '../state/layout'
-import type { Point } from '../geometry/flipper'
+import { flipperPath, type Point } from '../geometry/flipper'
 import { AngleDimension, Label, LinearDimension, formatDegrees, formatInches } from './Dimensions'
 
 type Props = {
@@ -27,11 +27,11 @@ export default function Annotations(props: Props) {
     const a = toRadians(inlanes.angle)
     const up = { x: sx * Math.sin(a), y: -Math.cos(a) }
     const offset =
-      flippers.alignment === 'top' ? flippers.baseRadius : flippers.alignment === 'flopped' ? -flippers.baseRadius : 0
+      flippers.alignment === 'top' ? contactBaseRadius() : flippers.alignment === 'flopped' ? -contactBaseRadius() : 0
     const p = { x: f.pivot.x + up.x * offset, y: f.pivot.y + up.y * offset }
     return {
       start: along(p, f.inlaneAngle, -INLANE_LENGTH - 0.5),
-      end: along(p, f.inlaneAngle, flippers.length + flippers.tipRadius + 1),
+      end: along(p, f.inlaneAngle, centerDistance() + contactTipRadius() + 1),
     }
   }
 
@@ -93,7 +93,7 @@ export default function Annotations(props: Props) {
           <LinearDimension
             a={{ x: left().pivot.x, y: playfield.height }}
             b={left().pivot}
-            offset={-(flippers.baseRadius + 0.8)}
+            offset={-(contactBaseRadius() + 0.8)}
             label={formatInches(flippers.pivotFromBottom)}
           />
         </Match>
@@ -121,16 +121,16 @@ export default function Annotations(props: Props) {
           <LinearDimension
             a={left().pivot}
             b={right().pivot}
-            offset={-(flippers.baseRadius + 1)}
+            offset={-(contactBaseRadius() + 1)}
             label={formatInches(flippers.spacing)}
           />
         </Match>
 
         <Match when={highlight() === 'flippers.spacing' && flippers.spacingMode === 'tips'}>
           <LinearDimension
-            a={{ x: left().tip.x + flippers.tipRadius, y: left().tip.y }}
-            b={{ x: right().tip.x - flippers.tipRadius, y: right().tip.y }}
-            offset={flippers.tipRadius + 0.8}
+            a={{ x: left().tip.x + contactTipRadius(), y: left().tip.y }}
+            b={{ x: right().tip.x - contactTipRadius(), y: right().tip.y }}
+            offset={contactTipRadius() + 0.8}
             label={formatInches(flippers.spacing)}
           />
         </Match>
@@ -169,11 +169,50 @@ export default function Annotations(props: Props) {
 
         <Match when={highlight() === 'flippers.length'}>
           <LinearDimension
-            a={left().pivot}
-            b={left().tip}
-            offset={-(flippers.baseRadius + 0.6)}
+            a={along(left().pivot, left().angle, -flippers.baseRadius)}
+            b={along(left().tip, left().angle, flippers.tipRadius)}
+            offset={-(contactBaseRadius() + 0.6)}
             label={formatInches(flippers.length)}
           />
+        </Match>
+
+        <Match when={highlight() === 'flippers.rubberThickness'}>
+          <path
+            class="highlight-shape"
+            d={flipperPath(left().pivot, contactBaseRadius(), contactTipRadius(), centerDistance(), left().angle)}
+            vector-effect="non-scaling-stroke"
+          />
+          <LinearDimension
+            a={along(left().tip, left().angle, flippers.tipRadius)}
+            b={along(left().tip, left().angle, contactTipRadius())}
+            offset={contactTipRadius() + 0.6}
+            label={formatInches(flippers.rubberThickness)}
+          />
+        </Match>
+
+        <Match when={highlight() === 'flippers.strokeAngle'}>
+          <Index each={props.flippers}>
+            {(f) => {
+              // Left flippers swing counter-clockwise on screen, right ones clockwise.
+              const up = () => f().angle + (f().side === 'left' ? -1 : 1) * toRadians(flippers.strokeAngle)
+              return (
+                <>
+                  <path
+                    class="highlight-shape"
+                    d={flipperPath(f().pivot, contactBaseRadius(), contactTipRadius(), centerDistance(), up())}
+                    vector-effect="non-scaling-stroke"
+                  />
+                  <AngleDimension
+                    center={f().pivot}
+                    from={f().angle}
+                    to={up()}
+                    radius={centerDistance() + contactTipRadius() + 0.6}
+                    label={formatDegrees(flippers.strokeAngle)}
+                  />
+                </>
+              )
+            }}
+          </Index>
         </Match>
 
         <Match when={highlight() === 'inlanes.angle'}>
