@@ -4,7 +4,7 @@ import ShotsTab from './ShotsTab'
 
 export default function Sidebar() {
   return (
-    <Tabs.Root class="sidebar" defaultValue="setup">
+    <Tabs.Root class="sidebar" defaultValue="shots">
       <Tabs.List class="sidebar-tabs">
         <Tabs.Trigger class="sidebar-tab" value="setup">
           Setup

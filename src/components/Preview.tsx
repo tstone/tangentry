@@ -7,7 +7,7 @@ import { flipperPath } from '../geometry/flipper'
 import Annotations from './Annotations'
 import { DimensionMarkers } from './Dimensions'
 import PathColoringControl from './PathColoringControl'
-import ShotLanes from './ShotLanes'
+import ShotLanes, { WallMounts } from './ShotLanes'
 import ShotMarkers from './ShotMarkers'
 import ShotPaths from './ShotPaths'
 
@@ -37,6 +37,16 @@ export default function Preview() {
           height={playfield.height}
           vector-effect="non-scaling-stroke"
         />
+        <g classList={{ 'is-highlighted': highlight() === 'playfield.sideRail' }}>
+          <rect class="side-rail" x={0} y={0} width={playfield.sideRail} height={playfield.height} />
+          <rect
+            class="side-rail"
+            x={playfield.width - playfield.sideRail}
+            y={0}
+            width={playfield.sideRail}
+            height={playfield.height}
+          />
+        </g>
         <line
           class="center-line"
           x1={flippers.centerLine}
@@ -81,6 +91,7 @@ export default function Preview() {
         <Annotations flippers={layout().flippers} />
         <ShotLanes />
         <ShotPaths />
+        <WallMounts />
         <ShotMarkers />
       </svg>
       <PathColoringControl />

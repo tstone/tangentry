@@ -5,15 +5,18 @@ import { ballMass } from '../physics/drive'
 import { inlanes } from './inlanes'
 import { ball } from './ball'
 import { walls } from './walls'
-import { selectedId, shots, type LaneAlignment, type Shot } from './shots'
+import { selectedId, shots, type LaneAlignment, type Shot, type WallSide } from './shots'
+import { flexRestitution, wallStiffness, type MountKind } from '../physics/wall'
 import { INLANE_LENGTH, computeLayout, toRadians, type Side } from './layout'
 import { GRAVITY, rollingGravity, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
 import type { Point } from '../geometry/flipper'
 import {
   runLane,
   laneCenterLine,
+  normal,
   offsetCurve,
   tightestBend,
+  unit,
   type CurveSample,
   type LaneOutcome,
   type LaneRun,
@@ -114,8 +117,11 @@ function solveFlippers(shot: Shot): FlipperSolutions[] {
       y: pivot.y - (playfield.height - shot.entrance.y),
     }
 
-    // Playfield walls, inset so the ball's edge (not its center) touches them.
-    const walls = [sx * (ballRadius - pivot.x), sx * (playfield.width - ballRadius - pivot.x)]
+    // Side rails, inset so the ball's edge (not its center) touches them.
+    const walls = [
+      sx * (playfield.sideRail + ballRadius - pivot.x),
+      sx * (playfield.width - playfield.sideRail - ballRadius - pivot.x),
+    ]
     const bounds = { minX: Math.min(...walls), maxX: Math.max(...walls), maxY: pivot.y - ballRadius }
 
     const solve = (state: BallState): Solution | null => {
@@ -146,14 +152,33 @@ function solveFlippers(shot: Shot): FlipperSolutions[] {
   })
 }
 
+// Which wall each `offsetCurve` side is: 1 is to the right of travel.
+export const WALL_SIDES: { side: WallSide; offset: number; label: string }[] = [
+  { side: 'left', offset: -1, label: 'Left wall' },
+  { side: 'right', offset: 1, label: 'Right wall' },
+]
+
+export type LaneWall = {
+  side: WallSide
+  points: Point[]
+  // Distance along the wall at each point, inches.
+  lengths: number[]
+  // Fraction of the speed into the wall the ball bounces back with at each point.
+  restitution: number[]
+  // Mounts where they sit on the wall, with the direction away from the lane.
+  mounts: { id: number; kind: MountKind; point: Point; outward: Point }[]
+}
+
 export type Lane = {
   center: CurveSample[]
-  walls: [Point[], Point[]]
+  walls: LaneWall[]
   // Solution the entrance is lined up with. Differs from the shot's
   // alignment when that one has no solution.
   alignedTo: LaneAlignment
   // The ball is wider than the lane.
   tooNarrow: boolean
+  // Furthest a wall runs past a side rail, inches; 0 if the lane fits.
+  overRail: number
   // Tightest radius of the center line and its distance along it.
   tightest: { radius: number; distance: number }
 }
@@ -171,6 +196,8 @@ const solutionFor = (flippers: FlipperSolutions[], alignment: LaneAlignment) => 
   return flippers.find((f) => f.approach === approach)?.states[state] ?? null
 }
 
+const scaleNormal = (t: Point, side: number): Point => ({ x: normal(t).x * side, y: normal(t).y * side })
+
 function analyze(shot: Shot): ShotAnalysis {
   const solved = solveFlippers(shot)
 
@@ -182,18 +209,60 @@ function analyze(shot: Shot): ShotAnalysis {
   const entrance = { x: shot.entrance.x, y: playfield.height - shot.entrance.y }
   const exit = { x: shot.exit.x, y: playfield.height - shot.exit.y }
   const exitAngle = toRadians(shot.exit.angle)
+  // The lane can sit off to one side of where the ball enters.
+  const startDir = unit(reference.arrivalVelocity)
+  const start = {
+    x: entrance.x - normal(startDir).x * shot.entranceOffset,
+    y: entrance.y - normal(startDir).y * shot.entranceOffset,
+  }
   const center = laneCenterLine(
-    entrance,
-    reference.arrivalVelocity,
+    start,
+    startDir,
     exit,
     // Screen angles are counter-clockwise; SVG y points down.
     { x: Math.cos(exitAngle), y: -Math.sin(exitAngle) },
     shot.continuity,
     { entrance: shot.entranceWeight, exit: shot.exitWeight },
+    shot.leadIn,
   )
-  const width = { entrance: shot.entranceWidth, exit: shot.exitWidth }
+  const width = {
+    entrance: shot.entranceWidth,
+    exit: shot.exitWidth,
+    funnelLength: shot.funnelLength,
+  }
   const ballRadius = ball.diameter / 2
+  const mass = ballMass(ball.diameter)
   const gravity = rollingGravity(GRAVITY * Math.sin(toRadians(playfield.angle)))
+
+  const laneWalls: LaneWall[] = WALL_SIDES.map(({ side, offset }) => {
+    const points = offsetCurve(center, offset, width)
+    let length = 0
+    const lengths = points.map((p, i) => (length += i > 0 ? Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) : 0))
+    // Each mount goes on the wall point nearest its distance along the wall.
+    const placed = shot.mounts[side].map((m) => {
+      const target = m.at * length
+      let index = 0
+      for (let i = 1; i < lengths.length; i++) {
+        if (Math.abs(lengths[i] - target) < Math.abs(lengths[index] - target)) index = i
+      }
+      return { ...m, index }
+    })
+    const stiffness = wallStiffness(points, placed, walls)
+    return {
+      side,
+      points,
+      lengths,
+      restitution: stiffness.map((k) => walls.restitution * flexRestitution(k, mass)),
+      mounts: placed.map((m) => ({
+        id: m.id,
+        kind: m.kind,
+        point: points[m.index],
+        outward: scaleNormal(center[m.index].t, offset),
+      })),
+    }
+  })
+  const restitution = (offset: number, index: number) =>
+    laneWalls[WALL_SIDES.findIndex((w) => w.offset === offset)].restitution[index]
 
   const flippers = solved.map((f) => ({
     ...f,
@@ -202,7 +271,7 @@ function analyze(shot: Shot): ShotAnalysis {
         state,
         s && {
           ...s,
-          lane: runLane(center, width, ballRadius, s.arrival, s.arrivalVelocity, gravity, walls.restitution),
+          lane: runLane(center, width, ballRadius, s.arrival, s.arrivalVelocity, gravity, restitution),
         },
       ]),
     ) as Record<BallState, Solution | null>,
@@ -213,9 +282,15 @@ function analyze(shot: Shot): ShotAnalysis {
     flippers,
     lane: {
       center,
-      walls: [offsetCurve(center, 1, width), offsetCurve(center, -1, width)],
+      walls: laneWalls,
       alignedTo,
       tooNarrow: Math.min(width.entrance, width.exit) <= ball.diameter,
+      overRail: Math.max(
+        0,
+        ...laneWalls.flatMap((w) =>
+          w.points.map((p) => Math.max(playfield.sideRail - p.x, p.x - (playfield.width - playfield.sideRail))),
+        ),
+      ),
       tightest: tightestBend(center),
     },
   }

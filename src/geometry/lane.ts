@@ -18,9 +18,10 @@ const sub = (a: Point, b: Point): Point => ({ x: a.x - b.x, y: a.y - b.y })
 const scale = (a: Point, k: number): Point => ({ x: a.x * k, y: a.y * k })
 const dot = (a: Point, b: Point) => a.x * b.x + a.y * b.y
 const cross = (a: Point, b: Point) => a.x * b.y - a.y * b.x
-const unit = (a: Point): Point => scale(a, 1 / (Math.hypot(a.x, a.y) || 1))
+export const unit = (a: Point): Point => scale(a, 1 / (Math.hypot(a.x, a.y) || 1))
 // Perpendicular to `a`, a quarter turn from it.
-const normal = (a: Point): Point => ({ x: -a.y, y: a.x })
+// In SVG coordinates (y down) that's to the right of travel.
+export const normal = (a: Point): Point => ({ x: -a.y, y: a.x })
 
 /** Fill in distance along the curve for a list of points and tangents. */
 function withLength(points: { p: Point; t: Point }[]): CurveSample[] {
@@ -122,9 +123,13 @@ function quintic(p0: Point, t0: Point, p1: Point, t1: Point, weights: TangentWei
   return points
 }
 
+// Spacing of samples along a straight lead-in, inches.
+const LEAD_IN_SPACING = 0.1
+
 /**
  * Center line of a lane from `start` heading along `startDir` to `end`
- * heading along `endDir`. Directions needn't be unit length.
+ * heading along `endDir`. Directions needn't be unit length. The lane runs
+ * straight for `leadIn` inches before it starts to bend.
  */
 export function laneCenterLine(
   start: Point,
@@ -133,12 +138,16 @@ export function laneCenterLine(
   endDir: Point,
   continuity: Continuity,
   weights: TangentWeights,
+  leadIn = 0,
 ): CurveSample[] {
   const t0 = unit(startDir)
   const t1 = unit(endDir)
-  return withLength(
-    continuity === 'g1' ? biarc(start, t0, end, t1, weights) : quintic(start, t0, end, t1, weights),
-  )
+  const straight: { p: Point; t: Point }[] = []
+  const count = Math.ceil(leadIn / LEAD_IN_SPACING)
+  for (let i = 0; i < count; i++) straight.push({ p: add(start, scale(t0, (leadIn * i) / count)), t: t0 })
+  const bendStart = add(start, scale(t0, leadIn))
+  const bend = continuity === 'g1' ? biarc(bendStart, t0, end, t1, weights) : quintic(bendStart, t0, end, t1, weights)
+  return withLength([...straight, ...bend])
 }
 
 /**
@@ -159,13 +168,20 @@ export function tightestBend(curve: CurveSample[]) {
   return best
 }
 
-// Wall-to-wall width at each end of a lane. It tapers linearly in between.
-export type LaneWidth = { entrance: number; exit: number }
+// Wall-to-wall width at each end of a lane. The lane narrows (or widens)
+// from the entrance width to the exit width over `funnelLength` from the
+// entrance, easing in and out so the walls don't kink, and keeps the exit
+// width beyond that. Infinity spreads it over the whole lane.
+export type LaneWidth = { entrance: number; exit: number; funnelLength: number }
 
 /** Width of the lane at each sample along its center line. */
-const widths = (curve: CurveSample[], width: LaneWidth) => {
+export const laneWidths = (curve: CurveSample[], width: LaneWidth) => {
   const total = curve[curve.length - 1]?.s || 1
-  return curve.map((q) => width.entrance + (width.exit - width.entrance) * (q.s / total))
+  return curve.map((q) => {
+    const length = Math.min(width.funnelLength, total)
+    const t = length > 0 ? Math.min(1, q.s / length) : 1
+    return width.entrance + ((width.exit - width.entrance) * (1 - Math.cos(Math.PI * t))) / 2
+  })
 }
 
 /**
@@ -173,7 +189,7 @@ const widths = (curve: CurveSample[], width: LaneWidth) => {
  * width, less `inset`.
  */
 export function offsetCurve(curve: CurveSample[], side: number, width: LaneWidth, inset = 0): Point[] {
-  const w = widths(curve, width)
+  const w = laneWidths(curve, width)
   return curve.map((q, i) => add(q.p, scale(normal(q.t), side * (w[i] / 2 - inset))))
 }
 
@@ -186,14 +202,18 @@ export type WallContact = {
   side: number
   // Distance along the lane's center line.
   distance: number
+  // Wall sample the ball hits, an index into `offsetCurve`'s points.
+  index: number
   // Angle between the ball's travel and the wall, degrees.
   impactAngle: number
   // Speed of the ball into the wall, in/s.
   normalSpeed: number
+  // Speed it bounces back off the wall with, in/s.
+  reboundSpeed: number
 }
 
 // How the ball gets through the lane, best to worst, judged by its hardest
-// hit on a wall and by whether it bounces across the lane:
+// bounce off a wall and by whether it bounces across the lane:
 // - smooth: only glancing contact
 // - chatter: light hits
 // - ricochet: a hard hit, or one trip across to the other wall
@@ -201,9 +221,10 @@ export type WallContact = {
 // - stalls: never makes it out of the exit
 export type LaneOutcome = 'smooth' | 'chatter' | 'ricochet' | 'rattle' | 'stalls'
 
-// Speed into a wall (in/s) at which a hit reaches each outcome. At 150 in/s
+// Speed the ball bounces back off a wall (in/s) at which a hit reaches each
+// outcome. Hitting a rigid wall that returns 60% of the speed, at 150 in/s
 // these are hits at roughly 6°, 14° and 24° to the wall.
-export const HIT_SEVERITY = { chatter: 15, ricochet: 35, rattle: 60 }
+export const HIT_SEVERITY = { chatter: 9, ricochet: 21, rattle: 36 }
 
 export type LaneRun = {
   // Ball center from the entrance to where it leaves the lane, and its
@@ -225,10 +246,14 @@ const MAX_STEPS = 20000
 // Below this speed into a wall (in/s), the ball stays on it and rolls along it.
 const RIDE_SPEED = 2
 
+// Fraction of the speed into a wall the ball bounces back with, at a wall
+// side (1 or -1) and sample index.
+export type WallRestitution = (side: number, index: number) => number
+
 /**
  * Follow the ball through the lane from `position` with `velocity`, rolling
  * freely with `gravity` pulling toward +y and bouncing off the walls, which
- * return `restitution` of the speed into them. Spin and wall friction are
+ * return `restitution` of the speed into them where they're hit. Spin and wall friction are
  * ignored. Returns null if the lane is too narrow for the ball.
  *
  * Each step the ball is placed relative to the center line. If it has gone
@@ -244,13 +269,13 @@ export function runLane(
   position: Point,
   velocity: Point,
   gravity: number,
-  restitution: number,
+  restitution: WallRestitution,
 ): LaneRun | null {
   // The taper is linear, so the narrowest point is at one end.
   if (Math.min(width.entrance, width.exit) / 2 <= ballRadius || curve.length < 2) return null
 
   const last = curve.length - 1
-  const w = widths(curve, width)
+  const w = laneWidths(curve, width)
 
   // Where a point is relative to the center line: the segment it's beside,
   // how far along that segment (beyond 0–1 past either end of the lane), and
@@ -301,7 +326,7 @@ export function runLane(
     // Bounces that switch walls are trips across the lane.
     let crossings = 0
     for (let i = 1; i < bounces.length; i++) if (bounces[i].side !== bounces[i - 1].side) crossings++
-    const hardest = Math.max(0, ...bounces.map((b) => b.normalSpeed))
+    const hardest = Math.max(0, ...bounces.map((b) => b.reboundSpeed))
     const outcome: LaneOutcome =
       exitSpeed === null
         ? 'stalls'
@@ -345,22 +370,22 @@ export function runLane(
       const into = -dot(v, inward)
       if (into > 0) {
         const angle = Math.abs(Math.atan2(cross(here.tangent, v), dot(here.tangent, v)))
+        const index = here.f < 0.5 ? here.i : here.i + 1
+        // Too gentle to bounce: the ball rolls along the wall.
+        const rebound = into < RIDE_SPEED ? 0 : restitution(side, index) * into
         const contact: WallContact = {
           wall: add(here.center, scale(here.n, side * here.halfWidth)),
           ball: p,
           side,
           distance: here.distance,
+          index,
           impactAngle: (Math.min(angle, Math.PI - angle) * 180) / Math.PI,
           normalSpeed: into,
+          reboundSpeed: rebound,
         }
         firstTouch ??= contact
-        if (into < RIDE_SPEED) {
-          // Too gentle to bounce: the ball rolls along the wall.
-          v = add(v, scale(inward, into))
-        } else {
-          v = add(v, scale(inward, (1 + restitution) * into))
-          bounces.push(contact)
-        }
+        v = add(v, scale(inward, into + rebound))
+        if (into >= RIDE_SPEED) bounces.push(contact)
       }
     }
     record()

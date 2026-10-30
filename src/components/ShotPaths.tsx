@@ -101,10 +101,10 @@ export default function ShotPaths() {
                             {(b) => (
                               <circle
                                 class="shot-path-contact"
-                                classList={{ 'is-hit': b.normalSpeed >= HIT_SEVERITY.chatter }}
+                                classList={{ 'is-hit': b.reboundSpeed >= HIT_SEVERITY.chatter }}
                                 cx={b.wall.x}
                                 cy={b.wall.y}
-                                r={b.normalSpeed >= HIT_SEVERITY.chatter ? 0.12 : 0.06}
+                                r={b.reboundSpeed >= HIT_SEVERITY.chatter ? 0.12 : 0.06}
                               />
                             )}
                           </For>

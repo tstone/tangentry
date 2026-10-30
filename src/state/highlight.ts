@@ -5,6 +5,7 @@ export type HighlightKey =
   | 'playfield.width'
   | 'playfield.height'
   | 'playfield.angle'
+  | 'playfield.sideRail'
   | 'flippers.centerLine'
   | 'flippers.pivotFromBottom'
   | 'flippers.alignment'

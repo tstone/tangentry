@@ -6,7 +6,7 @@ export default function App() {
   return (
     <Splitter.Root
       class="app"
-      defaultSize={[22, 78]}
+      defaultSize={[22.5, 77.5]}
       panels={[
         { id: 'sidebar', minSize: 15, maxSize: 45 },
         { id: 'preview' },

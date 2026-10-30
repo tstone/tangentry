@@ -14,6 +14,7 @@ import { inlanes, setInlanes } from '../state/inlanes'
 import { ball, setBall } from '../state/ball'
 import { walls, setWalls } from '../state/walls'
 import { COILS, MATERIALS, type CoilId, type MaterialId } from '../physics/drive'
+import { WALL_MATERIALS, type WallMaterialId } from '../physics/wall'
 
 const ALIGNMENT_OPTIONS: { label: string; value: Alignment }[] = [
   { label: 'Top edge', value: 'top' },
@@ -24,6 +25,11 @@ const ALIGNMENT_OPTIONS: { label: string; value: Alignment }[] = [
 const COIL_OPTIONS: { label: string; value: CoilId }[] = COILS.map((c) => ({ label: c.label, value: c.id }))
 
 const MATERIAL_OPTIONS: { label: string; value: MaterialId }[] = MATERIALS.map((m) => ({ label: m.label, value: m.id }))
+
+const WALL_MATERIAL_OPTIONS: { label: string; value: WallMaterialId }[] = WALL_MATERIALS.map((m) => ({
+  label: m.label,
+  value: m.id,
+}))
 
 const SPACING_OPTIONS: { label: string; value: SpacingMode }[] = [
   { label: 'Distance between pivots', value: 'pivots' },
@@ -64,6 +70,16 @@ export default function SetupTab() {
           value={playfield.angle}
           highlight="playfield.angle"
           onChange={(angle) => setPlayfield('angle', angle)}
+        />
+        <NumberField
+          label="Side rails"
+          unit="in"
+          min={0}
+          max={3}
+          step={0.0625}
+          value={playfield.sideRail}
+          highlight="playfield.sideRail"
+          onChange={(sideRail) => setPlayfield('sideRail', sideRail)}
         />
       </section>
 
@@ -234,8 +250,32 @@ export default function SetupTab() {
 
       <section class="sidebar-section">
         <h2 class="sidebar-heading">Lane Walls</h2>
+        <SelectField
+          label="Material"
+          options={WALL_MATERIAL_OPTIONS}
+          value={walls.material}
+          onChange={(material) => setWalls('material', material)}
+        />
         <NumberField
-          label="Bounciness"
+          label="Thickness"
+          unit="in"
+          min={0.01}
+          max={0.25}
+          step={0.005}
+          value={walls.thickness}
+          onChange={(thickness) => setWalls('thickness', thickness)}
+        />
+        <NumberField
+          label="Height"
+          unit="in"
+          min={0.25}
+          max={4}
+          step={0.0625}
+          value={walls.height}
+          onChange={(height) => setWalls('height', height)}
+        />
+        <NumberField
+          label="Bounciness where rigid"
           unit="e"
           min={0}
           max={1}
@@ -243,6 +283,26 @@ export default function SetupTab() {
           value={walls.restitution}
           onChange={(restitution) => setWalls('restitution', restitution)}
         />
+        <p class="field-note">Right at a spade bolt. Between mounts the wall flexes and returns less.</p>
+        <NumberField
+          label="Spade bolt stiffness"
+          unit="lbf/in"
+          min={100}
+          max={100000}
+          step={500}
+          value={walls.spadeStiffness}
+          onChange={(spadeStiffness) => setWalls('spadeStiffness', spadeStiffness)}
+        />
+        <NumberField
+          label="Spike stiffness"
+          unit="lbf/in"
+          min={100}
+          max={100000}
+          step={250}
+          value={walls.spikeStiffness}
+          onChange={(spikeStiffness) => setWalls('spikeStiffness', spikeStiffness)}
+        />
+        <p class="field-note">How hard each mount resists the wall being pushed sideways. Estimates; tune to match real walls.</p>
       </section>
     </>
   )
