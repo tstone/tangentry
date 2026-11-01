@@ -58,14 +58,36 @@ function segmentsDistance(a: Point, b: Point, c: Point, d: Point) {
   return Math.min(segmentDistance(a, c, d), segmentDistance(b, c, d), segmentDistance(c, a, b), segmentDistance(d, a, b))
 }
 
+/** Whether a ball of `radius` rolling along `path` comes within reach of any of the segments, all inside `b`. */
+function pathTouchesSegments(
+  path: Point[],
+  radius: number,
+  segments: (readonly [Point, Point])[],
+  b: ReturnType<typeof bounds>,
+) {
+  // Most of a path is nowhere near the segments; skip comparing every one there.
+  const far = (p: Point, q: Point) =>
+    Math.max(p.x, q.x) < b.left - radius ||
+    Math.min(p.x, q.x) > b.right + radius ||
+    Math.max(p.y, q.y) < b.top - radius ||
+    Math.min(p.y, q.y) > b.bottom + radius
+  return path
+    .slice(1)
+    .some((q, i) => !far(path[i], q) && segments.some(([r, s]) => segmentsDistance(path[i], q, r, s) < radius))
+}
+
 /** Whether a ball of `radius` rolling along `path` touches the polygon. */
 export function pathTouchesPolygon(path: Point[], radius: number, polygon: Point[]) {
   if (polygon.length < 3 || path.length === 0) return false
   if (insidePolygon(path[0], polygon)) return true
-  const polygonEdges = edges(polygon)
-  return path
-    .slice(1)
-    .some((q, i) => polygonEdges.some(([r, s]) => segmentsDistance(path[i], q, r, s) < radius))
+  return pathTouchesSegments(path, radius, edges(polygon), bounds(polygon))
+}
+
+/** Whether a ball of `radius` rolling along `path` touches the line through `points` in turn. */
+export function pathTouchesLine(path: Point[], radius: number, points: Point[]) {
+  if (points.length < 2 || path.length === 0) return false
+  const segments = points.slice(1).map((q, i) => [points[i], q] as const)
+  return pathTouchesSegments(path, radius, segments, bounds(points))
 }
 
 /** Whether a ball of `radius` rolling along `path` touches the circle. */

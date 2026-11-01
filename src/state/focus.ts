@@ -1,5 +1,5 @@
 import { createSignal } from 'solid-js'
-import type { ShotEnd } from './shots'
+import type { ShotEnd, WallSide } from './shots'
 
 // The one item the user is working on, if any: a shot, a custom mech or an
 // extra flipper. The toolbar's item tools, the playfield's handles and the
@@ -7,9 +7,12 @@ import type { ShotEnd } from './shots'
 
 export type FocusKind = 'shot' | 'mech' | 'flipper'
 
-// A part of the focused item picked out on its own, as a shot's end or one of
-// its bend points by id. Escape and Delete act on it before the item.
-export type FocusPart = ShotEnd | number
+// A part of the focused item picked out on its own, as a shot's end, one of
+// its bend points by id, or one of its walls. Escape and Delete act on it
+// before the item.
+export type FocusPart = ShotEnd | number | WallPart
+
+export type WallPart = `${WallSide}-wall`
 
 export type Focus = { kind: FocusKind; id: number; part?: FocusPart }
 

@@ -8,6 +8,7 @@ import { clearPlayfieldImage } from './playfieldImage'
 import {
   DEFAULT_HORSESHOE,
   DEFAULT_ORIGIN,
+  FULL_WALL,
   canFeedFlipper,
   canLeaveBy,
   replaceShots,
@@ -17,6 +18,7 @@ import {
   type Feed,
   type FlipperKey,
   type OpenSpan,
+  type WallSide,
   type Origin,
   type Shot,
   type TargetFlipper,
@@ -281,6 +283,7 @@ function readShot(input: unknown, path: string, centerLine: number): { shot: Sho
           },
     // Missing from files saved before lanes could have open spans.
     openSpans: readOpenSpans(s.openSpans, `${path}.openSpans`),
+    wallExtent: readWallExtent(s.wallExtent, `${path}.wallExtent`),
   }
   return { shot, link }
 }
@@ -294,7 +297,7 @@ const pathLength = (points: Entrance[]) =>
  * made before lanes could be double-ended, into one double-ended shot: up
  * the first one's lane to where they were joined, now a bend point, and on
  * back down the second's to its entrance, now the exit with its origin.
- * Mounts and open spans keep their places along the lane, measured roughly.
+ * Mounts, open spans and where the walls start keep their places along the lane, measured roughly.
  */
 function mergeJoined(read: { shot: Shot; link: number | null }[]): Shot[] {
   const list = read.map((r) => r.shot)
@@ -347,10 +350,25 @@ function mergeJoined(read: { shot: Shot; link: number | null }[]): Shot[] {
         ...a.openSpans.map((span) => ({ from: alongA(span.from), to: alongA(span.to) })),
         ...b.openSpans.map((span) => ({ from: alongB(span.to), to: alongB(span.from) })).reverse(),
       ],
+      wallExtent: {
+        left: { from: alongA(a.wallExtent.left.from), to: alongB(b.wallExtent.right.from) },
+        right: { from: alongA(a.wallExtent.right.from), to: alongB(b.wallExtent.left.from) },
+      },
     })
     absorbed.add(b.id)
   }
   return list.filter((s) => !absorbed.has(s.id)).map((s) => merged.get(s.id) ?? s)
+}
+
+function readWallExtent(input: unknown, path: string): Shot['wallExtent'] {
+  // Missing from files saved before walls could be cut short.
+  if (input === undefined) return { left: { ...FULL_WALL }, right: { ...FULL_WALL } }
+  const extent = object(input, path)
+  const side = (side: WallSide) => {
+    const at = object(extent[side], `${path}.${side}`)
+    return { from: number(at.from, `${path}.${side}.from`), to: number(at.to, `${path}.${side}.to`) }
+  }
+  return { left: side('left'), right: side('right') }
 }
 
 function readOpenSpans(input: unknown, path: string): OpenSpan[] {

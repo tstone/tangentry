@@ -90,7 +90,7 @@ function laneEntities(): Entity[] {
   return shotAnalyses().flatMap(({ lane }) =>
     lane
       ? lane.walls.flatMap((wall) =>
-          lane.pieces.map(([first, last]) => polyline(wall.points.slice(first, last + 1).map(fromSvg))),
+          wall.pieces.map(([first, last]) => polyline(wall.points.slice(first, last + 1).map(fromSvg))),
         )
       : [],
   )

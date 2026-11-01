@@ -1,4 +1,4 @@
-import { createMemo, createRoot, mapArray } from 'solid-js'
+import { createMemo, createRoot, createSignal, mapArray } from 'solid-js'
 import { playfield } from './playfield'
 import { flipperShape, flippers, profile, restAngle, torque, type FlipperShape } from './flippers'
 import { extraFlipperKey, extraFlippers, flipperFeed, type ExtraFlipper } from './extraFlippers'
@@ -6,7 +6,7 @@ import { ballMass, coilTorque, flipperInertia, flipperProfile, type FlipperProfi
 import { inlanes } from './inlanes'
 import { ball } from './ball'
 import { walls } from './walls'
-import { reservedBlocking } from './reserved'
+import { pathTouchesReserved, reserved } from './reserved'
 import { focusedPart } from './focus'
 import {
   endPoint,
@@ -38,8 +38,8 @@ import {
 } from '../physics/wall'
 import { INLANE_LENGTH, computeLayout, extraFlipperLayout, toRadians, type Side } from './layout'
 import { GRAVITY, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
-import type { Point } from '../geometry/flipper'
-import { polygonsOverlap } from '../geometry/overlap'
+import { flipperOutline, type Point } from '../geometry/flipper'
+import { pathTouchesLine, pathTouchesPolygon, polygonsOverlap } from '../geometry/overlap'
 import {
   appendTurn,
   runLane,
@@ -52,6 +52,7 @@ import {
   type CurveSample,
   type LaneOutcome,
   type LaneRun,
+  type OpenSides,
   type WallContact,
 } from '../geometry/lane'
 
@@ -76,7 +77,7 @@ export const OUTCOME_LABELS: Record<LaneOutcome, string> = {
   ricochet: 'ricochets off the wall',
   rattle: 'rattles',
   stalls: 'stalls in the lane',
-  misses: 'misses the walls past an open span',
+  misses: 'misses or runs into a wall past a gap',
 }
 
 /** A solved shot, in SVG coordinates. */
@@ -120,8 +121,8 @@ export type FlipperSolutions = {
   // Only the ways the ball can arrive on this flipper: an extra flipper's
   // ball only rolls in, along its axis.
   states: Partial<Record<BallState, Solution | null>>
-  // Name of the custom mech in the way of each ball path that would
-  // otherwise reach the entrance; that path's state is null.
+  // Name of the custom mech, flipper or lane in the way of each ball path
+  // that would otherwise reach the entrance; that path's state is null.
   blocked: Partial<Record<BallState, string>>
 }
 
@@ -190,7 +191,11 @@ function solverFor(
     }
   }
 
-  return { side, pivot, shape, states, solve }
+  // Where it sits at rest, for ball paths off the other flippers to run into.
+  const rest = toRadians(restAngle)
+  const outline = flipperOutline(pivot, shape.baseRadius, shape.tipRadius, shape.length, side === 'left' ? rest : Math.PI - rest)
+
+  return { side, pivot, shape, outline, states, solve }
 }
 
 /** Solves shots off one of the main pair of flippers. */
@@ -227,25 +232,125 @@ export const allFlipperSolvers = (): FlipperSolver[] => [
   ...extraFlippers.map(extraFlipperSolver),
 ]
 
+// Something a ball path can run into on its way to a lane: a custom mech,
+// a flipper at rest or another lane. Ids tell apart the ones a ball path
+// can't be blocked by, as the flipper it comes off.
+type Obstacle = { id: string; name: string; touches: (path: Point[]) => boolean }
+
+const mechObstacles = (): Obstacle[] =>
+  reserved.map((area) => ({
+    id: `mech${area.id}`,
+    name: area.name,
+    touches: (path) => pathTouchesReserved(area, path, ball.diameter / 2),
+  }))
+
+const flipperObstacle = (key: FlipperKey, name: string, solver: FlipperSolver): Obstacle => ({
+  id: key,
+  name,
+  touches: (path) => pathTouchesPolygon(path, ball.diameter / 2, solver.outline),
+})
+
+/**
+ * The flippers in one tier, at rest. The main pair are with the extra
+ * flippers not fed from a lane, which stay put whatever the lanes do.
+ */
+const flipperObstacles = (tier: Exclude<Tier, 'all'>): Obstacle[] => [
+  ...(tier === 'base'
+    ? (['left', 'right'] as const).map((side) =>
+        flipperObstacle(side, side === 'left' ? 'Left flipper' : 'Right flipper', flipperSolver(side)),
+      )
+    : []),
+  ...extraFlippers
+    .filter((f) => inTier(f, tier))
+    .map((f) => flipperObstacle(extraFlipperKey(f.id), f.name, extraFlipperSolver(f))),
+]
+
+/**
+ * The lanes, as shaped from the base flippers' shots. Only the first part
+ * of a ramp is down on the playfield; past that it's up out of the way of
+ * shots under it.
+ */
+const laneObstacles = (): Obstacle[] =>
+  (madeLaneShapes()?.() ?? []).flatMap(({ id, lane }) => {
+    const shot = shots.find((s) => s.id === id)
+    const shape = lane.base()
+    if (!shot || !shape) return []
+    // Only the walls block: a shot can cut across where one's been cut short.
+    const lines = wallLines(shape, shot.ramp ? shape.exitDistance * RAMP_ON_PLAYFIELD : Infinity)
+    if (lines.length === 0) return []
+    return [
+      {
+        id: `lane${id}`,
+        name: shot.name,
+        touches: (path: Point[]) => lines.some((line) => pathTouchesLine(path, ball.diameter / 2, line)),
+      },
+    ]
+  })
+
+/**
+ * What can't block a ball path off a flipper into one of a shot's lane
+ * ends: the flipper itself, the shot's own lane, and for a fed flipper,
+ * the lane its ball comes out of.
+ */
+function unblocking(key: FlipperKey, shot: Shot) {
+  const feed = extraFlippers.find((f) => extraFlipperKey(f.id) === key)
+  const from = feed && flipperFeed(feed)
+  return [key, `lane${shot.id}`, ...(from ? [`lane${from.id}`] : [])]
+}
+
+/** The first obstacle a ball path's flight runs into, leaving out those in `skip`. */
+const blockedBy = (s: Solution, obstacles: Obstacle[], skip: string[]) =>
+  obstacles.find((o) => !skip.includes(o.id) && o.touches(s.flight)) ?? null
+
 function solveWith(
   solver: FlipperSolver,
   key: FlipperKey,
   label: string,
   approach: Approach | null,
+  shot: Shot,
   to: Entrance,
+  obstacles: Obstacle[],
 ): FlipperSolutions {
   const { side, pivot, shape } = solver
+  const skip = unblocking(key, shot)
   const blocked: FlipperSolutions['blocked'] = {}
   const states = Object.fromEntries(
     solver.states.map((state) => {
       const s = solver.solve(to, state)
-      // The ball can't fly through a mech on its way to the entrance.
-      const by = s && reservedBlocking(s.flight, ball.diameter / 2)
+      // The ball can't fly through anything on its way to the entrance.
+      const by = s && blockedBy(s, obstacles, skip)
       if (by) blocked[state] = by.name
       return [state, by ? null : s]
     }),
   )
   return { key, label, approach, side, pivot, shape, states, blocked }
+}
+
+/**
+ * Ball paths into one of a shot's lane ends, with those that run into a
+ * fed flipper or another lane blocked too. Those move with the lanes, so
+ * they're left out of the base flippers' shots the lanes are first shaped
+ * from. The same list if nothing more is blocked.
+ */
+function blockMoving(shot: Shot, solved: FlipperSolutions[]): FlipperSolutions[] {
+  const obstacles = [...flipperObstacles('fed'), ...laneObstacles()]
+  if (obstacles.length === 0) return solved
+  let changed = false
+  const result = solved.map((f) => {
+    const skip = unblocking(f.key, shot)
+    const blocked = { ...f.blocked }
+    const states = Object.fromEntries(
+      Object.entries(f.states).map(([state, s]) => {
+        const by = s && blockedBy(s, obstacles, skip)
+        if (!by) return [state, s]
+        blocked[state as BallState] = by.name
+        changed = true
+        return [state, null]
+      }),
+    ) as FlipperSolutions['states']
+    return { ...f, states, blocked }
+  })
+  return changed ? result : solved
 }
 
 /** The main flipper a cross-field shot to `entrance` comes off: entrances left of center cross from the right. */
@@ -273,23 +378,26 @@ const inTier = (f: ExtraFlipper, tier: Tier) => tier === 'all' || (tier === 'fed
 
 /**
  * Every flipper's shots through one end of a shot's lane: the main pair's,
- * cross-field first, then each extra flipper's.
+ * cross-field first, then each extra flipper's. Only all of them together
+ * are blocked by the fed flippers and the lanes.
  */
 export function solveFlippers(shot: Shot, end: ShotEnd = 'entrance', tier: Tier = 'all'): FlipperSolutions[] {
   const to = endPoint(shot, end)
   const cross = crossSide(to)
+  const obstacles = [...mechObstacles(), ...flipperObstacles('base')]
 
   const main =
     tier === 'fed'
       ? []
       : APPROACHES.map(({ approach, label }) => {
           const side: Side = approach === 'cross' ? cross : cross === 'left' ? 'right' : 'left'
-          return solveWith(flipperSolver(side), side, `${label} · ${side} flipper`, approach, to)
+          return solveWith(flipperSolver(side), side, `${label} · ${side} flipper`, approach, shot, to, obstacles)
         })
   const extra = extraFlippers
     .filter((f) => inTier(f, tier))
-    .map((f) => solveWith(extraFlipperSolver(f), extraFlipperKey(f.id), f.name, null, to))
-  return [...main, ...extra]
+    .map((f) => solveWith(extraFlipperSolver(f), extraFlipperKey(f.id), f.name, null, shot, to, obstacles))
+  const solved = [...main, ...extra]
+  return tier === 'all' ? blockMoving(shot, solved) : solved
 }
 
 /** The base and fed flippers' shots together, in the order `solveFlippers` gives them all. */
@@ -317,6 +425,10 @@ export type LaneWall = {
   flexPerSpeed: number[]
   // Mounts where they sit on the wall, with the direction away from the lane.
   mounts: { id: number; kind: MountKind; point: Point; outward: Point }[]
+  // Points with no wall: along an open span, or past where the wall is cut short.
+  open: boolean[]
+  // First and last point of each stretch of this wall.
+  pieces: Piece[]
 }
 
 export type Lane = {
@@ -326,9 +438,9 @@ export type Lane = {
   exitDistance: number
   // Wall-to-wall width at each sample of the center line.
   widths: number[]
-  // Samples of the center line along an open span, with no walls beside them.
+  // Samples of the center line with no wall either side of them.
   open: boolean[]
-  // First and last sample of each stretch that has walls.
+  // First and last sample of each stretch with a wall on either side.
   pieces: Piece[]
   walls: LaneWall[]
   // Solution the entrance is lined up with. Differs from the shot's
@@ -573,18 +685,21 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
   }
   const mass = ballMass(ball.diameter)
   // Open spans only reach as far as the exit, not around a horseshoe.
-  const open = center.map(
+  const spans = center.map(
     (q) =>
       q.s <= exitDistance &&
       shot.openSpans.some((span) => q.s >= span.from * exitDistance && q.s <= span.to * exitDistance),
   )
-  const pieces = walledPieces(open)
 
   const laneWalls: LaneWall[] = WALL_SIDES.map(({ side, offset }) => {
     const points = offsetCurve(center, offset, width)
     let length = 0
     const lengths = points.map((p, i) => (length += i > 0 ? Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) : 0))
     // Each mount goes on the wall point nearest its distance along the wall.
+    // Cut short, the wall stands only between its ends.
+    const extent = shot.wallExtent[side]
+    const open = lengths.map((l, i) => spans[i] || l < extent.from * length - 1e-9 || l > extent.to * length + 1e-9)
+    const pieces = walledPieces(open)
     const placed = shot.mounts[side].map((m) => {
       const target = m.at * length
       let index = 0
@@ -606,14 +721,17 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
         point: points[m.index],
         outward: scaleNormal(center[m.index].t, offset),
       })),
+      open,
+      pieces,
     }
   })
+  const open = center.map((_, i) => laneWalls.every((w) => w.open[i]))
   return {
     center,
     exitDistance,
     widths: laneWidths(center, width),
     open,
-    pieces,
+    pieces: walledPieces(open),
     walls: laneWalls,
     alignedTo: into.alignedTo,
     splitWith: into.splitWith,
@@ -633,15 +751,33 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
   }
 }
 
+// How much of a ramp, from its entrance toward its exit, is down on the
+// playfield where it blocks shots.
+const RAMP_ON_PLAYFIELD = 0.5
+
 /**
  * Closed outlines of the space a lane takes up, one for each stretch with
- * walls: along one wall and back down the other.
+ * walls: along one wall and back down the other. Only as far as `upTo`
+ * along the center line, if given.
  */
-export const laneOutlines = (lane: Lane) =>
-  lane.pieces.map(([first, last]) => [
+export const laneOutlines = (lane: Lane, upTo = Infinity) =>
+  piecesUpTo(lane, lane.pieces, upTo).map(([first, last]) => [
     ...lane.walls[0].points.slice(first, last + 1),
     ...lane.walls[1].points.slice(first, last + 1).reverse(),
   ])
+
+/** Each stretch of each of a lane's walls, as far as `upTo` along its center line if given. */
+export const wallLines = (lane: Lane, upTo = Infinity) =>
+  lane.walls.flatMap((wall) =>
+    piecesUpTo(lane, wall.pieces, upTo).map(([first, last]) => wall.points.slice(first, last + 1)),
+  )
+
+/** Pieces cut off where a lane's center line passes `upTo`. */
+function piecesUpTo(lane: Lane, pieces: Piece[], upTo: number) {
+  let end = lane.center.length - 1
+  while (end > 0 && lane.center[end].s > upTo) end--
+  return pieces.map(([first, last]): Piece => [first, Math.min(last, end)]).filter(([first, last]) => last > first)
+}
 
 const wallOn = (lane: Lane, offset: number) => lane.walls[WALL_SIDES.findIndex((w) => w.offset === offset)]
 
@@ -689,14 +825,16 @@ type Placed = TrackPart & { lane: Lane }
 function track(id: number, own: Lane, feeders: { id: number; lane: Lane; backward: boolean }[], backward: boolean) {
   const center: CurveSample[] = []
   const widths: number[] = []
-  const open: boolean[] = []
+  const open: OpenSides = { left: [], right: [] }
   const placed: Placed[] = []
 
-  const push = (p: Point, t: Point, width: number, isOpen: boolean) => {
+  // Whether there's no wall to the ball's left and right.
+  const push = (p: Point, t: Point, width: number, isOpen: [boolean, boolean]) => {
     const last = center.at(-1)
     center.push({ p, t, s: last ? last.s + Math.hypot(p.x - last.p.x, p.y - last.p.y) : 0 })
     widths.push(width)
-    open.push(isOpen)
+    open.left.push(isOpen[0])
+    open.right.push(isOpen[1])
   }
   // Open playfield in a straight line on to `b`, where the next lane starts `width` wide.
   const crossTo = (b: Point, width: number) => {
@@ -707,7 +845,7 @@ function track(id: number, own: Lane, feeders: { id: number; lane: Lane; backwar
     const from = widths.at(-1)!
     for (let k = 1; k < n; k++) {
       const f = k / n
-      push({ x: a.p.x + (b.x - a.p.x) * f, y: a.p.y + (b.y - a.p.y) * f }, t, from + (width - from) * f, true)
+      push({ x: a.p.x + (b.x - a.p.x) * f, y: a.p.y + (b.y - a.p.y) * f }, t, from + (width - from) * f, [true, true])
     }
   }
   // Samples of a lane, in the order given, across open playfield from the last.
@@ -721,7 +859,8 @@ function track(id: number, own: Lane, feeders: { id: number; lane: Lane; backwar
     const first = center.length
     for (const i of indices.slice(skip)) {
       const { p, t } = lane.center[i]
-      push(p, backward ? { x: -t.x, y: -t.y } : t, lane.widths[i], lane.open[i])
+      const openOn = (offset: number) => wallOn(lane, backward ? -offset : offset).open[i]
+      push(p, backward ? { x: -t.x, y: -t.y } : t, lane.widths[i], [openOn(-1), openOn(1)])
     }
     if (center.length > first) placed.push({ id, lane, first, last: center.length - 1, from: indices[skip], backward })
   }
@@ -822,12 +961,36 @@ export function analyze(
   return withRuns(shot, lane, inflow, exitInflow)
 }
 
+/** Whether two lists hold the same ball paths, blocked by the same things. */
+const sameSolutions = (a: FlipperSolutions[] | undefined, b: FlipperSolutions[]) =>
+  a === b ||
+  (!!a &&
+    a.length === b.length &&
+    a.every((f, i) => {
+      const g = b[i]
+      const states = Object.keys(f.states) as BallState[]
+      return (
+        f.key === g.key &&
+        states.length === Object.keys(g.states).length &&
+        states.every((state) => f.states[state] === g.states[state] && f.blocked[state] === g.blocked[state])
+      )
+    }))
+
 const sameLeg = (a: Leg | null, b: Leg | null) => a === b || (!!a && !!b && a.shot === b.shot && a.leaves === b.leaves)
+
+// The lane shapes and fed flippers' settings, once they're made. Shaping a
+// lane reads both, so the shots already there when they're first made, as
+// when this module is reloaded, are shaped without them; making them then
+// shapes those lanes again.
+const [madeLaneShapes, setMadeLaneShapes] = createSignal<typeof laneShapes | null>(null)
+const [madeFedFlippers, setMadeFedFlippers] = createSignal<typeof fedFlippers | null>(null)
 
 // Each shot's lane is shaped separately, so editing one doesn't re-solve
 // the rest. Its ball paths are run once its own and any feeding lanes are.
 // It's shaped from the base flippers' shots too, for the extra flippers it
-// feeds; without fed flippers to shoot it from, that's the same lane.
+// feeds; without fed flippers to shoot it from, that's the same lane. The
+// base lanes are what block other shots' ball paths, so a lane's shape
+// never hangs on its own.
 const laneShapes = createRoot(() => {
   const list = mapArray(
     () => shots,
@@ -841,7 +1004,11 @@ const laneShapes = createRoot(() => {
         const solveTier = (tier: Tier) => createMemo(() => (shotInto() && !feeder() ? solveFlippers(shot, end, tier) : []))
         const base = solveTier('base')
         const fed = solveTier('fed')
-        const solved = createMemo(() => mergeTiers(base(), fed()))
+        // Moving another lane re-checks what it blocks, but the lane is only
+        // shaped again if that changes.
+        const solved = createMemo(() => blockMoving(shot, mergeTiers(base(), fed())), undefined, {
+          equals: sameSolutions,
+        })
         const inlet = (list: FlipperSolutions[]): Inlet => {
           const from = feeder()
           return { solved: list, from: from && leavingExit(from.shot, from.leaves) }
@@ -871,6 +1038,7 @@ const laneShapes = createRoot(() => {
   )
   return createMemo(list)
 })
+setMadeLaneShapes(() => laneShapes)
 
 /**
  * How the ball comes into one end of a shot's lane: off the flippers, or
@@ -1041,14 +1209,15 @@ const fedFlippers = createRoot(() => {
   )
   return createMemo(list)
 })
+setMadeFedFlippers(() => fedFlippers)
 
 /**
  * What an extra flipper takes from the lane end feeding it, if it's fed. A
  * ball rolling back out of a lane reaches it at the speed it picks up on the
  * way down to where the flipper is now.
  */
-export const fedFlipperSettings = (f: ExtraFlipper): FedSettings | null => {
-  const fed = fedFlippers()
+export function fedFlipperSettings(f: ExtraFlipper): FedSettings | null {
+  const fed = (madeFedFlippers()?.() ?? [])
     .find((s) => s.id === f.id)
     ?.settings()
   if (!fed) return null
@@ -1082,7 +1251,9 @@ function distanceAlong(fed: FedSettings, pivot: Entrance) {
 }
 
 /** The settings a fed extra flipper takes from its lane end, or null if it isn't fed. */
-const fedOrNull = (f: ExtraFlipper) => (flipperFeed(f) ? fedFlipperSettings(f) : null)
+function fedOrNull(f: ExtraFlipper) {
+  return flipperFeed(f) ? fedFlipperSettings(f) : null
+}
 
 /** How far on from the end of the lane feeding it an extra flipper's pivot is, if it's fed. */
 export function feedDistance(f: ExtraFlipper): number | null {

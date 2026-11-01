@@ -286,7 +286,8 @@ export type WallContact = {
 // - ricochet: a hard hit, or one trip across to the other wall
 // - rattle: a very hard hit, or bouncing back and forth across the lane
 // - stalls: never makes it out of the exit
-// - misses: flies across an open span and misses the walls on the far side
+// - misses: flies across a gap in the walls and misses them, or runs into
+//   the end of one, on the far side
 //
 // How far a hit knocks the ball across, more than its angle, is what
 // matters: the outside wall of a bend soon catches a ball bouncing off it,
@@ -327,6 +328,10 @@ export type LaneRun = {
 // Distance the ball travels per simulation step, inches.
 const STEP_LENGTH = 0.03
 const MAX_STEPS = 20000
+// Furthest the ball can overlap where a wall starts again past a gap and
+// still be turned back into the lane, rather than run into the wall's end,
+// inches: about as far as it drifts in a step.
+const WALL_END_SLACK = 0.03
 // Below this speed into a wall (in/s), the ball stays on it and rolls along it.
 const RIDE_SPEED = 2
 // Furthest a bounce lifts the ball off a wall it's pressed against, inches,
@@ -356,6 +361,9 @@ export type Incline = { slope: number; normal: number }
 // How a wall responds where it's hit, at a wall side (1 or -1) and sample
 // index: the fraction of the speed into it the ball bounces back with, and
 // how far it flexes per in/s of that speed, inches.
+// Samples of the center line with no wall beside them, on each side.
+export type OpenSides = { left: boolean[]; right: boolean[] }
+
 export type WallResponse = (side: number, index: number) => { restitution: number; flexPerSpeed: number }
 
 /**
@@ -372,8 +380,9 @@ export type WallResponse = (side: number, index: number) => { restitution: numbe
  * it rolls on the wall as well as the playfield, which keeps its spin in
  * step with it around a bend. Friction along the wall is ignored.
  *
- * Where `open` marks a sample, the lane has no walls beside it: the ball
- * runs free there, and must be between the walls where they start again.
+ * Where `open` marks a sample on one side, the lane has no wall there: the
+ * ball runs free past that side, and must be inside the wall where it
+ * starts again. `left` is side -1, to the left of travel.
  *
  * Each step the ball is placed relative to the center line. If it has gone
  * further to either side than the ball's center can reach, it has hit that
@@ -389,7 +398,7 @@ export function runLane(
   velocity: Point,
   incline: Incline,
   wall: WallResponse,
-  open: boolean[] = [],
+  open: OpenSides = { left: [], right: [] },
 ): LaneRun | null {
   if (Math.min(...w) / 2 <= ballRadius || curve.length < 2) return null
 
@@ -465,8 +474,14 @@ export function runLane(
     return { path, speeds, firstTouch, bounces, outcome, exitSpeed }
   }
 
-  // Whether the ball was beside an open span at the last step.
-  let wasOpen = false
+  // Whether there's no wall on a side (-1 or 1) of a stretch: none runs
+  // between its ends if either end is open.
+  const isOpen = (side: number, i: number) => {
+    const marks = side < 0 ? open.left : open.right
+    return !!(marks[i] || marks[i + 1])
+  }
+  // Whether each side, left then right, had no wall at the last step.
+  let wasOpen = [false, false]
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const speed = Math.hypot(v.x, v.y)
@@ -504,21 +519,24 @@ export function runLane(
     }
 
     const reach = here.halfWidth - ballRadius
-    // A stretch is open if either end of it is: no wall runs between them.
-    if (open[here.i] || open[here.i + 1]) {
-      wasOpen = true
-      record()
-      continue
-    }
-    // Back between walls after an open span: with its center outside them,
-    // the ball misses the lane. Overlapping the end of a wall, it's turned
-    // back in as if it had hit the wall.
-    if (wasOpen && Math.abs(here.lateral) > here.halfWidth) {
+    const openNow = [isOpen(-1, here.i), isOpen(1, here.i)]
+    const toward = here.lateral < 0 ? 0 : 1
+    // Back beside a wall after it was open: overlapping where the wall
+    // starts again, the ball runs into its end, or with its center outside
+    // the wall, misses the lane altogether. Only just touching it, it's
+    // turned back in as if it had hit the wall.
+    if (wasOpen[toward] && !openNow[toward] && Math.abs(here.lateral) > reach + WALL_END_SLACK) {
       record()
       return finish(null, true)
     }
-    wasOpen = false
-    if (Math.abs(here.lateral) > reach) {
+    wasOpen = openNow
+    // With no walls either side, the ball runs free.
+    if (openNow[0] && openNow[1]) {
+      record()
+      continue
+    }
+    // Only a wall turns the ball back.
+    if (Math.abs(here.lateral) > reach && !openNow[toward]) {
       const side = Math.sign(here.lateral)
       // Points from the wall back into the lane.
       const inward = scale(here.n, -side)
@@ -569,7 +587,8 @@ export function runLane(
         lifting = rebound > 0 ? contact : null
       }
     }
-    if (lifting) {
+    // Out past a side with no wall, it's off the lane rather than knocked across it.
+    if (lifting && !openNow[toward]) {
       const across = (reach - lifting.side * dot(sub(p, here.center), here.n)) / (2 * reach)
       lifting.lift = Math.min(1, Math.max(lifting.lift, across))
     }

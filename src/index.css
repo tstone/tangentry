@@ -1368,6 +1368,41 @@ body {
   stroke: #ff6b6b;
 }
 
+.shot-wall-picker {
+  cursor: pointer;
+}
+
+/* Invisible, a band along the wall. */
+.shot-wall-picker-line {
+  fill: none;
+  stroke: transparent;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: stroke;
+}
+
+.shot-wall-picker:hover .shot-wall-picker-line {
+  stroke: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* The wall picked out for its end sliders. */
+.shot-wall-focused {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  pointer-events: none;
+}
+
+/* Its end sliders move the wall's ends, so they're drawn in the wall's white. */
+.shot-wall-end {
+  fill: var(--fg);
+}
+
+.shot-wall-end:hover {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
 /* Shot solutions */
 .shot-state {
   display: flex;

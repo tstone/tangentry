@@ -44,6 +44,35 @@ export function flipperPath(
   ].join(' ')
 }
 
+/**
+ * Corners around a flipper's outline, as `flipperPath` draws it, each arc
+ * cut into `steps` straight pieces.
+ */
+export function flipperOutline(
+  base: Point,
+  baseRadius: number,
+  tipRadius: number,
+  length: number,
+  angle: number,
+  steps = 8,
+): Point[] {
+  const R = baseRadius
+  const r = tipRadius
+  const tip = { x: base.x + length * Math.cos(angle), y: base.y + length * Math.sin(angle) }
+  const arc = (c: Point, radius: number, from: number, span: number) =>
+    Array.from({ length: steps + 1 }, (_, k) => {
+      const a = from - (span * k) / steps
+      return { x: c.x + radius * Math.cos(a), y: c.y + radius * Math.sin(a) }
+    })
+
+  // One circle contains the other: just the larger one.
+  if (length <= Math.abs(R - r)) return arc(R >= r ? base : tip, Math.max(R, r), 0, 2 * Math.PI).slice(1)
+
+  const alpha = Math.acos((R - r) / length)
+  // Around the tip from one tangent line to the other, then back around the base.
+  return [...arc(tip, r, angle + alpha, 2 * alpha), ...arc(base, R, angle - alpha, 2 * Math.PI - 2 * alpha)]
+}
+
 /** Pivot positions for a symmetric pair of flippers. */
 export function flipperPivots(centerLine: number, pivotY: number, pivotSpacing: number) {
   return {

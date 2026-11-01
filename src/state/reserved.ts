@@ -174,18 +174,14 @@ export function reservedCrossedBy(outline: Point[]): ReservedArea[] {
 }
 
 /**
- * The first reserved area a ball of `radius` rolling along `path` runs
- * into, or null. The path is in SVG coordinates.
+ * Whether a ball of `radius` rolling along `path` runs into a reserved
+ * area. The path is in SVG coordinates.
  */
-export function reservedBlocking(path: Point[], radius: number): ReservedArea | null {
+export function pathTouchesReserved(area: ReservedArea, path: Point[], radius: number) {
   const svg = (p: Entrance) => ({ x: p.x, y: playfield.height - p.y })
-  return (
-    reserved.find((area) =>
-      area.kind === 'circle'
-        ? pathTouchesCircle(path, radius, svg(area.center), area.radius)
-        : pathTouchesPolygon(path, radius, area.points.map(svg)),
-    ) ?? null
-  )
+  return area.kind === 'circle'
+    ? pathTouchesCircle(path, radius, svg(area.center), area.radius)
+    : pathTouchesPolygon(path, radius, area.points.map(svg))
 }
 
 /** Swap in a whole new set of areas, as from an imported file. */

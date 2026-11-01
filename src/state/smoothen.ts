@@ -182,6 +182,7 @@ export async function smoothen(
     mounts: { left: live.mounts.left.map((m) => ({ ...m })), right: live.mounts.right.map((m) => ({ ...m })) },
     horseshoe: { ...live.horseshoe },
     exitOrigin: { ...live.exitOrigin },
+    wallExtent: { left: { ...live.wallExtent.left }, right: { ...live.wallExtent.right } },
   }
   // Lanes feeding either end are left as they are; the ball still runs
   // through them.

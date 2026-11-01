@@ -93,7 +93,7 @@ export function suggestMounts(shotId: number) {
       return crowded ? 'spike' : 'spade'
     }
     // Each separate piece of wall, either side of an open span, is held at both ends.
-    const ends = lane.pieces.flatMap(([first, last]) => {
+    const ends = wall.pieces.flatMap(([first, last]) => {
       const from = wall.lengths[first]
       const to = wall.lengths[last]
       const middle = (from + to) / 2
@@ -102,7 +102,7 @@ export function suggestMounts(shotId: number) {
     const placed: Placed[] = [...new Set(ends)].map((index) => ({ kind: kindAt(index), index }))
 
     while (placed.length < MAX_MOUNTS) {
-      const stiffness = piecewiseStiffness(wall.points, placed, lane.pieces, walls)
+      const stiffness = piecewiseStiffness(wall.points, placed, wall.pieces, walls)
       let worst = -1
       let worstFlex = MAX_FLEX
       stiffness.forEach((k, i) => {

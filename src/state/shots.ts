@@ -1,5 +1,5 @@
 import { batch } from 'solid-js'
-import { createStore } from 'solid-js/store'
+import { createStore, produce } from 'solid-js/store'
 import { playfield } from './playfield'
 import { focusOn, focusedId, unfocus, unfocusPart } from './focus'
 import type { Continuity } from '../geometry/lane'
@@ -118,11 +118,24 @@ export type Shot = {
   // Stretches with no walls, where the lane crosses space the ball needs
   // clear to reach other shots. The ball runs free across each one.
   openSpans: OpenSpan[]
+  // How much of each wall is put up, cut short at either end so shots can
+  // get past it.
+  wallExtent: Record<WallSide, WallExtent>
 }
 
 // Where an open span starts and ends along the lane, as fractions of the
 // distance to the exit, so it stays put relative to the lane as it's reshaped.
 export type OpenSpan = { from: number; to: number }
+
+// Where a wall starts and ends, as fractions of its length from the
+// entrance, as its mounts are placed.
+export type WallExtent = { from: number; to: number }
+
+// A wall left at its full length.
+export const FULL_WALL: WallExtent = { from: 0, to: 1 }
+
+// Shortest a wall can be cut down to, as a fraction of its length.
+export const MIN_WALL_EXTENT = 0.02
 
 // Open lanes end at the exit; a horseshoe carries the lane on around a
 // circular turn from there, keeping the exit width. A double-ended lane's
@@ -245,6 +258,7 @@ export const shotDefaults = (entrance: Entrance): Shot => ({
   exitOrigin: { ...DEFAULT_ORIGIN },
   horseshoe: { ...DEFAULT_HORSESHOE },
   openSpans: [],
+  wallExtent: { left: { ...FULL_WALL }, right: { ...FULL_WALL } },
 })
 
 type NewShot = Partial<Omit<Shot, 'id' | 'via' | 'mounts'>> & { via?: Entrance[] }
@@ -495,6 +509,24 @@ export function removeVia(id: number, viaId: number) {
 /** Put walls back along an open span, by its position among the shot's spans. */
 export function removeOpenSpan(id: number, index: number) {
   setShots((s) => s.id === id, 'openSpans', (list) => list.filter((_, i) => i !== index))
+}
+
+/**
+ * Move one end of a wall to `at`, a fraction of its length, keeping it
+ * from passing the other end.
+ */
+export function setWallEnd(id: number, side: WallSide, end: keyof WallExtent, at: number) {
+  setShots(
+    (s) => s.id === id,
+    'wallExtent',
+    side,
+    produce((extent) => {
+      extent[end] =
+        end === 'from'
+          ? Math.max(0, Math.min(at, extent.to - MIN_WALL_EXTENT))
+          : Math.min(1, Math.max(at, extent.from + MIN_WALL_EXTENT))
+    }),
+  )
 }
 
 /** Add a spike in the middle of the widest gap between a wall's mounts. */

@@ -17,7 +17,7 @@ import ProjectDialog from './ProjectDialog'
 import Toolbar, { SmoothenStatus } from './Toolbar'
 import ReservedAreas, { ReservedMarkers } from './ReservedAreas'
 import SafeTravel from './SafeTravel'
-import ShotLanes, { WallMounts } from './ShotLanes'
+import ShotLanes, { WallEndSliders, WallMounts, WallPickers } from './ShotLanes'
 import ShotMarkers, { ShotPickers } from './ShotMarkers'
 import ShotPaths from './ShotPaths'
 import SketchPalette, { SketchStrokes } from './Sketch'
@@ -230,7 +230,9 @@ export default function Preview() {
         </Show>
         <ShotPickers />
         <Show when={visible.walls}>
+          <WallPickers />
           <WallMounts />
+          <WallEndSliders />
         </Show>
         <ExtraFlipperHandles />
         <ShotMarkers />

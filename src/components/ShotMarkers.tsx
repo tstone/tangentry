@@ -564,7 +564,7 @@ const ARROW_PATH = (() => {
  * move freely or set a weight. Grabbed anywhere within its reach, not only on
  * its thin shaft.
  */
-function ArrowHandle(props: {
+export function ArrowHandle(props: {
   class: string
   at: Point
   along: Point
