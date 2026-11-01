@@ -674,6 +674,21 @@ body {
   color: var(--fg-muted);
 }
 
+.project-png-size {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.project-formats--compact .project-format {
+  max-width: 7rem;
+  padding: 0.4rem 0.75rem;
+}
+
+.project-formats--compact .project-format-label {
+  font-size: 0.95rem;
+}
+
 .project-drawing-parts {
   display: flex;
   flex-direction: column;

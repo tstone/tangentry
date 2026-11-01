@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch as Branch, createSignal, onCleanup } from 'solid-js'
+import { For, Match, Show, Switch as Branch, createSignal, onCleanup, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { Portal } from 'solid-js/web'
 import { Dialog } from '@ark-ui/solid/dialog'
@@ -7,17 +7,25 @@ import { FileUpload } from '@ark-ui/solid/file-upload'
 import { Switch } from '@ark-ui/solid/switch'
 import { Tabs } from '@ark-ui/solid/tabs'
 import { exportProjectJson, importProject } from '../state/project'
-import { DRAWING_PARTS, exportDxf, exportSvg, type DrawingPart } from '../state/drawingExport'
+import { DRAWING_PARTS, exportDxf, exportPng, exportSvg, pngSize, type DrawingPart } from '../state/drawingExport'
 import { log } from '../state/log'
 
 const FILE_NAME = 'tangentry.json'
 
-type ExportFormat = 'json' | 'dxf' | 'svg'
+type ExportFormat = 'json' | 'dxf' | 'svg' | 'png'
 
 const FORMATS: { label: string; note: string; value: ExportFormat }[] = [
   { label: 'DXF', note: 'Drawing for CAD', value: 'dxf' },
   { label: 'SVG', note: 'Vector drawing', value: 'svg' },
+  { label: 'PNG', note: 'Playfield image for VPX', value: 'png' },
   { label: 'JSON', note: 'Project file, to import later', value: 'json' },
+]
+
+// PNG heights, pixels.
+const PNG_HEIGHTS = [
+  { label: '1K', height: 1024 },
+  { label: '2K', height: 2048 },
+  { label: '4K', height: 4096 },
 ]
 
 // How long the copy button says "Copied", milliseconds.
@@ -33,6 +41,7 @@ const [drawingParts, setDrawingParts] = createStore<Record<DrawingPart, boolean>
   flippers: true,
   mechs: true,
 })
+const [pngHeight, setPngHeight] = createSignal(2048)
 
 function CopyButton(props: { text: () => string }) {
   const [copied, setCopied] = createSignal(false)
@@ -76,11 +85,39 @@ type DrawingFormat = {
   fileName: string
   mimeType: string
   note: string
-  write: (parts: Record<DrawingPart, boolean>) => string
+  write: (parts: Record<DrawingPart, boolean>) => string | Promise<Blob>
+  // Further choices for this format, shown above the parts.
+  options?: () => JSX.Element
+}
+
+function PngSize() {
+  const size = () => pngSize(pngHeight())
+  return (
+    <div class="project-png-size">
+      <div class="project-formats project-formats--compact" role="radiogroup" aria-label="Size">
+        <For each={PNG_HEIGHTS}>
+          {({ label, height }) => (
+            <button
+              type="button"
+              role="radio"
+              class="project-format"
+              aria-checked={pngHeight() === height}
+              onClick={() => setPngHeight(height)}
+            >
+              <span class="project-format-label">{label}</span>
+            </button>
+          )}
+        </For>
+      </div>
+      <p class="field-note">
+        {size().width} × {size().height} pixels
+      </p>
+    </div>
+  )
 }
 
 // Drawings of the playfield, which share the choice of what goes in them.
-const DRAWINGS: Record<'dxf' | 'svg', DrawingFormat> = {
+const DRAWINGS: Record<'dxf' | 'svg' | 'png', DrawingFormat> = {
   dxf: {
     fileName: 'tangentry.dxf',
     mimeType: 'application/dxf',
@@ -92,6 +129,20 @@ const DRAWINGS: Record<'dxf' | 'svg', DrawingFormat> = {
     mimeType: 'image/svg+xml',
     note: 'A vector drawing at full size, in inches, with each part on its own layer.',
     write: exportSvg,
+  },
+  png: {
+    fileName: 'tangentry.png',
+    mimeType: 'image/png',
+    note: 'An image of the drawing on white, to use as a playfield image in Visual Pinball.',
+    write: async (parts) => {
+      try {
+        return await exportPng(parts, pngHeight())
+      } catch (e) {
+        log(e instanceof Error ? e.message : 'Couldn’t make the PNG.')
+        throw e
+      }
+    },
+    options: PngSize,
   },
 }
 
@@ -111,6 +162,7 @@ function DrawingExport(props: { drawing: DrawingFormat }) {
           Download {props.drawing.fileName}
         </DownloadTrigger>
       </div>
+      {props.drawing.options?.()}
       <div class="project-drawing-parts">
         <For each={DRAWING_PARTS}>
           {({ part, label, note }) => (
@@ -258,6 +310,9 @@ export default function ProjectDialog() {
                   </Match>
                   <Match when={format() === 'svg'}>
                     <DrawingExport drawing={DRAWINGS.svg} />
+                  </Match>
+                  <Match when={format() === 'png'}>
+                    <DrawingExport drawing={DRAWINGS.png} />
                   </Match>
                 </Branch>
               </Tabs.Content>

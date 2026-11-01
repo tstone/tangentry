@@ -8,9 +8,9 @@ import { flipperProfile } from '../physics/drive'
 import type { Point } from '../geometry/flipper'
 
 // Line drawings of the playfield, to take into CAD or a drawing program: DXF
-// or SVG, with each part on its own layer. Geometry is gathered once, in
-// inches with y up the playfield from the bottom lip, and each format writes
-// it out.
+// or SVG, with each part on its own layer, or a PNG image rendered from the
+// SVG. Geometry is gathered once, in inches with y up the playfield from the
+// bottom lip, and each format writes it out.
 
 export type DrawingPart = 'playfield' | 'lanes' | 'laneCenters' | 'paths' | 'flippers' | 'mechs'
 
@@ -261,7 +261,16 @@ function svgElement(entity: Entity): string {
  * The parts chosen, as an SVG drawing sized in inches. Each part is a group,
  * marked as a layer for Inkscape. Reads the stores.
  */
-export function exportSvg(parts: Record<DrawingPart, boolean>): string {
+export const exportSvg = (parts: Record<DrawingPart, boolean>): string =>
+  svgDocument(parts, `${num(playfield.width)}in`, `${num(playfield.height)}in`, SVG_STROKE)
+
+// The SVG drawing, with its width and height attributes and line width, inches, as given.
+function svgDocument(
+  parts: Record<DrawingPart, boolean>,
+  widthAttr: string,
+  heightAttr: string,
+  strokeWidth: number,
+): string {
   const { width, height } = playfield
   const groups = chosenParts(parts).map((part) => {
     const { name, stroke } = LAYERS[part]
@@ -274,9 +283,47 @@ export function exportSvg(parts: Record<DrawingPart, boolean>): string {
   })
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${num(width)}in" height="${num(height)}in" viewBox="0 0 ${num(width)} ${num(height)}" fill="none" stroke-width="${SVG_STROKE}" stroke-linejoin="round" stroke-linecap="round">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${widthAttr}" height="${heightAttr}" viewBox="0 0 ${num(width)} ${num(height)}" fill="none" stroke-width="${num(strokeWidth)}" stroke-linejoin="round" stroke-linecap="round">`,
     ...groups,
     '</svg>',
     '',
   ].join('\n')
+}
+
+// Thinnest PNG line, pixels, so lines stay solid in a small texture.
+const MIN_PNG_STROKE_PX = 2
+
+/** Pixel size of the PNG `pixelHeight` tall, keeping the playfield's proportions. Reads the stores. */
+export function pngSize(pixelHeight: number): { width: number; height: number } {
+  return { width: Math.round((playfield.width / playfield.height) * pixelHeight), height: pixelHeight }
+}
+
+/**
+ * The parts chosen, as a PNG on white `pixelHeight` tall: a playfield image
+ * for Visual Pinball. Rendered from the SVG. Reads the stores.
+ */
+export async function exportPng(parts: Record<DrawingPart, boolean>, pixelHeight: number): Promise<Blob> {
+  const { width, height } = pngSize(pixelHeight)
+  const strokeWidth = Math.max(SVG_STROKE, (MIN_PNG_STROKE_PX * playfield.height) / height)
+  // Sized in pixels, so the browser rasterizes the lines at full resolution.
+  const svg = new Blob([svgDocument(parts, String(width), String(height), strokeWidth)], { type: 'image/svg+xml' })
+  const url = URL.createObjectURL(svg)
+  try {
+    const image = new Image()
+    image.src = url
+    await image.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Couldn’t draw the PNG.')
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, width, height)
+    context.drawImage(image, 0, 0, width, height)
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Couldn’t encode the PNG.'))), 'image/png'),
+    )
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
