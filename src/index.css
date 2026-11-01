@@ -538,6 +538,57 @@ body {
   color: var(--fg);
 }
 
+.project-dropzone--compact {
+  min-height: 7rem;
+}
+
+/* A numbered step of an export that takes more than one. */
+.project-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.project-step-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.project-step-action {
+  align-self: flex-start;
+}
+
+/* Grayed out until the step before it is done. */
+.project-step {
+  transition: opacity 0.3s;
+}
+
+.project-step[data-waiting] {
+  opacity: 0.4;
+}
+
+/* Once ready, the step's button glows to draw the eye. */
+.project-step:not([data-waiting]) .project-step-action {
+  border-color: var(--accent);
+  color: var(--fg);
+  animation: project-step-ready 0.9s ease-out 2;
+}
+
+@keyframes project-step-ready {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-step:not([data-waiting]) .project-step-action {
+    animation: none;
+  }
+}
+
 .project-dropzone .wall-mount-add {
   align-self: center;
 }
@@ -606,6 +657,15 @@ body {
 .project-paste-input:focus {
   border-color: var(--accent);
   outline: none;
+}
+
+.project-warning {
+  margin: 0;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid color-mix(in srgb, #f5d76e 50%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, #f5d76e 10%, var(--bg));
+  color: #f5d76e;
 }
 
 .project-error {

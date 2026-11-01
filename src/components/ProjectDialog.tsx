@@ -12,12 +12,13 @@ import { log } from '../state/log'
 
 const FILE_NAME = 'tangentry.json'
 
-type ExportFormat = 'json' | 'dxf' | 'svg' | 'png'
+type ExportFormat = 'json' | 'dxf' | 'svg' | 'png' | 'vpx'
 
 const FORMATS: { label: string; note: string; value: ExportFormat }[] = [
   { label: 'DXF', note: 'Drawing for CAD', value: 'dxf' },
   { label: 'SVG', note: 'Vector drawing', value: 'svg' },
   { label: 'PNG', note: 'Playfield image for VPX', value: 'png' },
+  { label: 'VPX', note: 'Table for Visual Pinball', value: 'vpx' },
   { label: 'JSON', note: 'Project file, to import later', value: 'json' },
 ]
 
@@ -42,6 +43,8 @@ const [drawingParts, setDrawingParts] = createStore<Record<DrawingPart, boolean>
   mechs: true,
 })
 const [pngHeight, setPngHeight] = createSignal(2048)
+// Table the VPX export is written into.
+const [vpxBase, setVpxBase] = createSignal<File | null>(null)
 
 function CopyButton(props: { text: () => string }) {
   const [copied, setCopied] = createSignal(false)
@@ -187,6 +190,73 @@ function DrawingExport(props: { drawing: DrawingFormat }) {
   )
 }
 
+const VPX_FILE_NAME = 'tangentry.vpx'
+
+function VpxExport() {
+  const [error, setError] = createSignal<string | null>(null)
+  const write = async () => {
+    const base = vpxBase()
+    if (!base) throw new Error('No table chosen.')
+    setError(null)
+    try {
+      // Loaded when needed: it brings the compound file library.
+      const { exportVpx } = await import('../state/vpxExport')
+      const { file, notes } = exportVpx(new Uint8Array(await base.arrayBuffer()))
+      for (const note of notes) log(`VPX export: ${note}`)
+      return new Blob([file as Uint8Array<ArrayBuffer>], { type: 'application/octet-stream' })
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Couldn’t make the table.'
+      setError(`${base.name}: ${message}`)
+      log(`VPX export failed: ${message}`)
+      throw e
+    }
+  }
+  return (
+    <>
+      <p class="project-warning">
+        VPX export is experimental, and not all settings are supported. Lanes and the main flippers’ position, size and
+        angles are exported; ramps, extra flippers, slingshots, coils and rubber friction aren’t.
+      </p>
+      <p class="project-note">
+        The lanes and main flippers, written into a Visual Pinball X table you choose, such as a blank table. The table is
+        resized to the playfield, and lanes from an earlier export into it are replaced.
+      </p>
+      <div class="project-step">
+        <p class="project-step-title">1. Upload an existing table file to write lanes into</p>
+        <FileUpload.Root
+          class="project-upload"
+          accept={['.vpx']}
+          maxFiles={1}
+          onFileAccept={(details) => {
+            setError(null)
+            setVpxBase(details.files[0] ?? null)
+          }}
+          onFileReject={() => setError('Choose a single .vpx file.')}
+        >
+          <FileUpload.Dropzone class="project-dropzone project-dropzone--compact">
+            <span>{vpxBase()?.name ?? 'Drop a .vpx table here'}</span>
+            <FileUpload.Trigger class="wall-mount-add">{vpxBase() ? 'Choose another' : 'Choose table'}</FileUpload.Trigger>
+          </FileUpload.Dropzone>
+          <FileUpload.HiddenInput />
+        </FileUpload.Root>
+        <Show when={error()}>{(message) => <p class="project-error">{message()}</p>}</Show>
+      </div>
+      <div class="project-step" data-waiting={vpxBase() ? undefined : ''}>
+        <p class="project-step-title">2. Download {VPX_FILE_NAME}</p>
+        <DownloadTrigger
+          class="wall-mount-add project-step-action"
+          fileName={VPX_FILE_NAME}
+          mimeType="application/octet-stream"
+          data={write}
+          disabled={!vpxBase()}
+        >
+          Download {VPX_FILE_NAME}
+        </DownloadTrigger>
+      </div>
+    </>
+  )
+}
+
 /** Button overlaid bottom right of the preview, opening a full-screen dialog to import or export the project. */
 export default function ProjectDialog() {
   const [open, setOpen] = createSignal(false)
@@ -313,6 +383,9 @@ export default function ProjectDialog() {
                   </Match>
                   <Match when={format() === 'png'}>
                     <DrawingExport drawing={DRAWINGS.png} />
+                  </Match>
+                  <Match when={format() === 'vpx'}>
+                    <VpxExport />
                   </Match>
                 </Branch>
               </Tabs.Content>
