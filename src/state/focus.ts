@@ -35,11 +35,30 @@ export function focusedPart(kind: FocusKind, id: number) {
   return f?.kind === kind && f.id === id ? (f.part ?? null) : null
 }
 
+// While set, focus changes aren't taken as the user picking anything out.
+let holding = false
+
 /** Focus an item the user picked out, or one of its parts. */
 export function focusOn(kind: FocusKind, id: number, part?: FocusPart) {
   const f = focus()
-  if (f?.kind !== kind || f.id !== id) setPicked({ kind, id })
+  if (!holding && (f?.kind !== kind || f.id !== id)) setPicked({ kind, id })
   setFocus({ kind, id, part })
+}
+
+/**
+ * Run `action`, as swapping in a whole project, without it moving focus:
+ * afterward focus goes back to what `settle` makes of where it was, such as
+ * null if that item is gone.
+ */
+export function keepFocus(action: () => void, settle: (before: Focus) => Focus | null) {
+  const before = focus()
+  holding = true
+  try {
+    action()
+  } finally {
+    holding = false
+  }
+  setFocus(before && settle(before))
 }
 
 /** Let go of the focused item, or only of one of this kind or with this id. */
