@@ -1473,13 +1473,25 @@ body {
   border-radius: 0 4px 4px 0;
 }
 
-/* How the ball arrived on the flipper. */
-.origin--inlane {
+/* How hard the shot is to time, green (easy) to red (very hard). */
+.difficulty--none {
+  --path-color: var(--fg-muted);
+}
+
+.difficulty--easy {
   --path-color: #6be3a4;
 }
 
-.origin--cradle {
-  --path-color: #c792ea;
+.difficulty--moderate {
+  --path-color: #f5d76e;
+}
+
+.difficulty--hard {
+  --path-color: #ffa45c;
+}
+
+.difficulty--very-hard {
+  --path-color: #ff6b6b;
 }
 
 /* How the ball gets through the lane, green (smooth) to red (rattles). */

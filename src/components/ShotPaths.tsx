@@ -50,9 +50,9 @@ export default function ShotPaths() {
               <Show when={flipper.states[state]}>
                 {(s) => (
                   <g
-                    class={`shot-path shot-path--${flipper.approach ?? 'extra'} ${pathColor(state, s()).class}`}
+                    class={`shot-path shot-path--${flipper.approach ?? 'extra'} ${pathColor(s()).class}`}
                     classList={{ 'is-hovered': isHovered(end, flipper.key, state) }}
-                    style={pathColor(state, s()).style}
+                    style={pathColor(s()).style}
                   >
                     <title>
                       {flipper.label} · {stateLabel(flipper.key, state).toLowerCase()}

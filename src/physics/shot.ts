@@ -425,13 +425,12 @@ const SEARCH_SAMPLES = 40
 const HIT_TOLERANCE = 0.05
 
 /**
- * Find where along the flipper the ball must be when the flipper fires so
- * that it rolls through `target`, or how far short of the flipper when
- * fired early. Returns null if no fire position works. When several do, the
- * earliest with the ball on the flipper is used, and failing those, the
- * latest early one.
+ * What's needed to fire the flipper with the ball at a given place: `fire`
+ * strikes it with the ball `s` along the flipper's top surface, or `-s`
+ * short of it when fired early, and `range` is the span of `s` that can
+ * strike it at all. Null for input that can't be solved.
  */
-export function solveShot(input: ShotInput): ShotSolution | null {
+function prepare(input: ShotInput) {
   const { flipper, ballRadius, ballMass, slope, baseSpeed, target, bounds } = input
   const numbers = [ballRadius, ballMass, slope, baseSpeed, target.x, target.y, ...Object.values(flipper), ...Object.values(bounds)]
   if (!numbers.every(Number.isFinite)) return null
@@ -441,24 +440,79 @@ export function solveShot(input: ShotInput): ShotSolution | null {
   const surface = topSurface(flipper, ballRadius)
   // Before the flip the ball rolls down the resting flipper's top surface.
   const approach = ROLLING * slope * Math.sin(flipper.restAngle + surface.beta)
-  const flightGravity = rollingGravity(slope)
-
   const ball = { radius: ballRadius, mass: ballMass }
-  // A negative `s` fires the flipper early, with the ball that far short of
-  // the base.
-  const evaluate = (s: number) => {
+  // A rolling ball can be met by a flipper fired early, already swinging
+  // when it gets there; any earlier than the flipper takes to reach its
+  // stop is the same as that.
+  const strokeTime = Math.sqrt((2 * flipper.stroke * flipper.inertia) / flipper.torque)
+  const range: [number, number] = [baseSpeed > 0 ? -baseSpeed * strokeTime * 1.05 : 0, surface.length]
+
+  const fire = (s: number) => {
     let speed = baseSpeed
     let hit: Strike | null
-    if (s < 0) hit = earlyStrike(flipper, ball, slope, -s, baseSpeed)
-    else {
+    if (s < 0) {
+      if (baseSpeed <= 0) return null
+      hit = earlyStrike(flipper, ball, slope, -s, baseSpeed)
+    } else {
       const speedSquared = baseSpeed * baseSpeed + 2 * approach * s
       if (speedSquared < 0) return null
       speed = Math.sqrt(speedSquared)
       hit = strike(flipper, ball, slope, { s, v: speed, theta: -flipper.restAngle, omega: 0 })
     }
     if (!hit) return null
-    const flight = closestApproach(hit.position, hit.velocity, flightGravity, target, bounds)
-    return { s, speed, hit, flight }
+    const fireTime =
+      s < 0
+        ? s / baseSpeed
+        : approach > 1e-9
+          ? (speed - baseSpeed) / approach
+          : baseSpeed > 0
+            ? s / baseSpeed
+            : Infinity
+    return { s, hit, fireTime }
+  }
+
+  return { range, fire, flightGravity: rollingGravity(slope) }
+}
+
+// The ball off the flipper fired with it somewhere along it, in the frame
+// `solveShot` works in.
+export type Refire = {
+  fireTime: number
+  departure: Point
+  velocity: Point
+}
+
+/**
+ * Fire the flipper with the ball `s` along it, or `-s` short of it, as
+ * `solveShot` reckons `fireDistance`. Null where that can't strike the ball.
+ */
+export function fireShot(input: ShotInput, s: number): Refire | null {
+  const prepared = prepare(input)
+  if (!prepared || s < prepared.range[0] || s > prepared.range[1]) return null
+  const fired = prepared.fire(s)
+  return fired && { fireTime: fired.fireTime, departure: fired.hit.position, velocity: fired.hit.velocity }
+}
+
+/** The span of fire positions that can strike the ball at all, as `fireShot` takes them. */
+export const fireRange = (input: ShotInput): [number, number] | null => prepare(input)?.range ?? null
+
+/**
+ * Find where along the flipper the ball must be when the flipper fires so
+ * that it rolls through `target`, or how far short of the flipper when
+ * fired early. Returns null if no fire position works. When several do, the
+ * earliest with the ball on the flipper is used, and failing those, the
+ * latest early one.
+ */
+export function solveShot(input: ShotInput): ShotSolution | null {
+  const prepared = prepare(input)
+  if (!prepared) return null
+  const { range, fire, flightGravity } = prepared
+  const { target, bounds } = input
+
+  const evaluate = (s: number) => {
+    const fired = fire(s)
+    if (!fired) return null
+    return { ...fired, flight: closestApproach(fired.hit.position, fired.hit.velocity, flightGravity, target, bounds) }
   }
 
   /** The first fire position from `from` to `to` that sends the ball through the target. */
@@ -484,22 +538,11 @@ export function solveShot(input: ShotInput): ShotSolution | null {
     return null
   }
 
-  // Firing with the ball on the flipper first. Failing that, a rolling ball
-  // can be met by a flipper fired early, already swinging when it gets there;
-  // any earlier than the flipper takes to reach its stop is the same as that.
-  const strokeTime = Math.sqrt((2 * flipper.stroke * flipper.inertia) / flipper.torque)
-  return search(0, surface.length) ?? (baseSpeed > 0 ? search(0, -baseSpeed * strokeTime * 1.05) : null)
+  // Firing with the ball on the flipper first, then early.
+  return search(0, range[1]) ?? (range[0] < 0 ? search(0, range[0]) : null)
 
   function toSolution(found: NonNullable<ReturnType<typeof evaluate>>): ShotSolution {
-    const { s, speed, hit, flight } = found
-    const fireTime =
-      s < 0
-        ? s / baseSpeed
-        : approach > 1e-9
-          ? (speed - baseSpeed) / approach
-          : baseSpeed > 0
-            ? s / baseSpeed
-            : Infinity
+    const { s, hit, flight, fireTime } = found
     const steps = 60
     return {
       fireDistance: s,

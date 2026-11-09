@@ -1,6 +1,6 @@
 import { For, Match, Show, Switch } from 'solid-js'
 import SelectField from './SelectField'
-import { BALL_STATES } from '../state/solutions'
+import { DIFFICULTY_BANDS } from '../state/difficulty'
 import { PATH_COLORINGS, SPEED_STOPS, pathColoring, setPathColoring, speedRange } from '../state/view'
 
 const OUTCOMES = [
@@ -27,14 +27,28 @@ export default function PathColoringControl() {
     <div class="path-coloring">
       <SelectField label="Paths" options={PATH_COLORINGS} value={pathColoring()} onChange={setPathColoring} />
       <Switch>
-        <Match when={pathColoring() === 'origin'}>
-          <ul class="path-legend">
-            <For each={BALL_STATES}>{({ state, label }) => <Swatch class={`origin--${state}`} label={label} />}</For>
-          </ul>
-        </Match>
         <Match when={pathColoring() === 'smoothness'}>
           <ul class="path-legend">
             <For each={OUTCOMES}>{({ outcome, label }) => <Swatch class={`outcome--${outcome}`} label={label} />}</For>
+          </ul>
+        </Match>
+        <Match when={pathColoring() === 'difficulty'}>
+          <ul class="path-legend">
+            <For each={DIFFICULTY_BANDS}>
+              {({ difficulty, label, minMs }, i) => (
+                <Swatch
+                  class={`difficulty--${difficulty}`}
+                  label={`${label} · ${
+                    i() === 0
+                      ? `${minMs}+ ms`
+                      : minMs === 0
+                        ? `under ${DIFFICULTY_BANDS[i() - 1].minMs} ms`
+                        : `${minMs}–${DIFFICULTY_BANDS[i() - 1].minMs} ms`
+                  }`}
+                />
+              )}
+            </For>
+            <Swatch class="difficulty--none" label="Can't make it" />
           </ul>
         </Match>
         <Match when={pathColoring() === 'speed'}>

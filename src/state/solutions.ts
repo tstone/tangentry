@@ -37,7 +37,31 @@ import {
   type WallSpec,
 } from '../physics/wall'
 import { INLANE_LENGTH, computeLayout, extraFlipperLayout, toRadians, type Side } from './layout'
-import { GRAVITY, rollingSpeed, solveShot, type Departure, type FlipperSpec } from '../physics/shot'
+import {
+  GRAVITY,
+  fireRange,
+  fireShot,
+  rollingGravity,
+  rollingSpeed,
+  solveShot,
+  type Departure,
+  type FlipperSpec,
+  type ShotInput,
+} from '../physics/shot'
+import { timingWindow, type Refire, type TimingWindow } from './difficulty'
+
+/** `f`'s result, worked out the first time it's asked for. */
+function lazily<T>(f: () => T): () => T {
+  let done = false
+  let value: T
+  return () => {
+    if (!done) {
+      value = f()
+      done = true
+    }
+    return value
+  }
+}
 import { flipperOutline, type Point } from '../geometry/flipper'
 import { pathTouchesLine, pathTouchesPolygon, polygonsOverlap } from '../geometry/overlap'
 import {
@@ -106,6 +130,20 @@ export type Solution = {
   // The ball's trip through the lane; null without a lane or if the ball
   // doesn't fit.
   lane: LaneRun | null
+  // The ball off the flipper fired with it elsewhere along it, and the
+  // span of fire positions that can strike it at all.
+  refire: Refire
+  fireRange: [number, number]
+  // How far off the timing can be and still make the shot through the lane;
+  // worked out when first asked for. Null without a lane run, or if the
+  // solved shot doesn't make it through.
+  timing: () => TimingWindow | null
+  // What the ball can't fly through on its way to the lane, besides those
+  // that move with the lanes.
+  obstacles: Obstacle[]
+  // What's in the way of the ball aimed at the middle of the lane end, if
+  // it's aimed off to one side of the mouth to get past.
+  slipsPast: string | null
 }
 
 export type FlipperSolutions = {
@@ -124,6 +162,11 @@ export type FlipperSolutions = {
   // Name of the custom mech, flipper or lane in the way of each ball path
   // that would otherwise reach the entrance; that path's state is null.
   blocked: Partial<Record<BallState, string>>
+  // Solves a ball path off this flipper to elsewhere, and where the lane end
+  // is and how wide its mouth, to aim off the middle of it.
+  solve: (to: Entrance, state: BallState) => Solution | null
+  to: Entrance
+  width: number
 }
 
 export type FlipperSolver = ReturnType<typeof solverFor>
@@ -168,8 +211,19 @@ function solverFor(
 
   const solve = (to: Entrance, state: BallState): Solution | null => {
     const target = { x: sx * (to.x - pivot.x), y: pivot.y - (playfield.height - to.y) }
-    const s = solveShot({ flipper: spec, ballRadius, ballMass: ballMass(ball.diameter), slope, baseSpeed: baseSpeeds[state] ?? 0, target, bounds })
+    const input: ShotInput = { flipper: spec, ballRadius, ballMass: ballMass(ball.diameter), slope, baseSpeed: baseSpeeds[state] ?? 0, target, bounds }
+    const s = solveShot(input)
     if (!s) return null
+    const refire: Refire = (fireDistance) => {
+      const fired = fireShot(input, fireDistance)
+      return (
+        fired && {
+          fireTime: fired.fireTime,
+          departure: toSvg(fired.departure),
+          velocity: { x: sx * fired.velocity.x, y: -fired.velocity.y },
+        }
+      )
+    }
     const angle = (Math.atan2(s.velocity.y, sx * s.velocity.x) * 180) / Math.PI
     return {
       fireDistance: s.fireDistance,
@@ -188,6 +242,11 @@ function solverFor(
       arrival: toSvg(s.flight[s.flight.length - 1]),
       arrivalVelocity: { x: sx * s.arrivalVelocity.x, y: -s.arrivalVelocity.y },
       lane: null,
+      refire,
+      fireRange: fireRange(input) ?? [s.fireDistance, s.fireDistance],
+      timing: () => null,
+      obstacles: [],
+      slipsPast: null,
     }
   }
 
@@ -235,7 +294,12 @@ export const allFlipperSolvers = (): FlipperSolver[] => [
 // Something a ball path can run into on its way to a lane: a custom mech,
 // a flipper at rest or another lane. Ids tell apart the ones a ball path
 // can't be blocked by, as the flipper it comes off.
-type Obstacle = { id: string; name: string; touches: (path: Point[]) => boolean }
+//
+// A lane's walls can also say whether a path's center line crosses them:
+// a ball only clipping the end of one, as where two lanes' mouths meet, is
+// turned whichever way its center is, so a shot fired a little off that
+// way still makes it.
+type Obstacle = { id: string; name: string; touches: (path: Point[]) => boolean; crosses?: (path: Point[]) => boolean }
 
 const mechObstacles = (): Obstacle[] =>
   reserved.map((area) => ({
@@ -283,6 +347,7 @@ const laneObstacles = (): Obstacle[] =>
         id: `lane${id}`,
         name: shot.name,
         touches: (path: Point[]) => lines.some((line) => pathTouchesLine(path, ball.diameter / 2, line)),
+        crosses: (path: Point[]) => lines.some((line) => pathTouchesLine(path, 0, line)),
       },
     ]
   })
@@ -302,6 +367,55 @@ function unblocking(key: FlipperKey, shot: Shot) {
 const blockedBy = (s: Solution, obstacles: Obstacle[], skip: string[]) =>
   obstacles.find((o) => !skip.includes(o.id) && o.touches(s.flight)) ?? null
 
+// A ball path that runs into something on its way to the middle of a lane
+// end can still get past it aimed off to one side of the mouth. Aims are
+// tried this far apart across it, inches, nearest the middle first, and no
+// closer to the end of a wall than this.
+const SLIP_STEP = 0.05
+const SLIP_MARGIN = 0.1
+
+type Aim = Pick<FlipperSolutions, 'solve' | 'to' | 'width'>
+
+/**
+ * The ball path off a flipper that gets past what's in the way of `s`,
+ * aimed at the mouth of the lane end nearest its middle, or null if none
+ * does.
+ */
+function slipPast(aim: Aim, state: BallState, s: Solution, obstacles: Obstacle[], skip: string[]): Solution | null {
+  const v = s.arrivalVelocity
+  const speed = Math.hypot(v.x, v.y)
+  if (speed === 0) return null
+  // Across the way the ball comes in, in SVG coordinates; an entrance's y
+  // is up the playfield.
+  const across = { x: -v.y / speed, y: v.x / speed }
+  const reach = aim.width / 2 - SLIP_MARGIN
+  for (let d = SLIP_STEP; d <= reach; d += SLIP_STEP)
+    for (const offset of [-d, d]) {
+      const aimed = aim.solve({ x: aim.to.x + across.x * offset, y: aim.to.y - across.y * offset }, state)
+      if (aimed && !blockedBy(aimed, obstacles, skip)) return aimed
+    }
+  return null
+}
+
+/**
+ * A ball path, or if something's in the way, the one that gets past it;
+ * and what's in the way if none does.
+ */
+function getPast(
+  aim: Aim,
+  state: BallState,
+  s: Solution | null,
+  obstacles: Obstacle[],
+  skip: string[],
+): { s: Solution | null; by: string | null } {
+  const by = s && blockedBy(s, obstacles, skip)
+  if (!s || !by) return { s, by: null }
+  const slipped = slipPast(aim, state, s, obstacles, skip)
+  if (!slipped) return { s: null, by: by.name }
+  slipped.slipsPast = s.slipsPast ?? by.name
+  return { s: slipped, by: null }
+}
+
 function solveWith(
   solver: FlipperSolver,
   key: FlipperKey,
@@ -309,21 +423,23 @@ function solveWith(
   approach: Approach | null,
   shot: Shot,
   to: Entrance,
+  width: number,
   obstacles: Obstacle[],
 ): FlipperSolutions {
-  const { side, pivot, shape } = solver
+  const { side, pivot, shape, solve } = solver
   const skip = unblocking(key, shot)
   const blocked: FlipperSolutions['blocked'] = {}
+  const aim = { solve, to, width }
   const states = Object.fromEntries(
     solver.states.map((state) => {
-      const s = solver.solve(to, state)
       // The ball can't fly through anything on its way to the entrance.
-      const by = s && blockedBy(s, obstacles, skip)
-      if (by) blocked[state] = by.name
-      return [state, by ? null : s]
+      const { s, by } = getPast(aim, state, solve(to, state), obstacles, skip)
+      if (by) blocked[state] = by
+      if (s) s.obstacles = obstacles.filter((o) => !skip.includes(o.id))
+      return [state, s]
     }),
   )
-  return { key, label, approach, side, pivot, shape, states, blocked }
+  return { key, label, approach, side, pivot, shape, states, blocked, ...aim }
 }
 
 /**
@@ -341,10 +457,16 @@ function blockMoving(shot: Shot, solved: FlipperSolutions[]): FlipperSolutions[]
     const blocked = { ...f.blocked }
     const states = Object.fromEntries(
       Object.entries(f.states).map(([state, s]) => {
-        const by = s && blockedBy(s, obstacles, skip)
-        if (!by) return [state, s]
-        blocked[state as BallState] = by.name
+        if (!s || !blockedBy(s, obstacles, skip)) return [state, s]
         changed = true
+        // Aimed off to one side, it mustn't run into what the flipper's
+        // shots are already kept clear of either.
+        const past = getPast(f, state as BallState, s, [...s.obstacles, ...obstacles], skip)
+        if (past.s) {
+          past.s.obstacles = s.obstacles
+          return [state, past.s]
+        }
+        blocked[state as BallState] = past.by!
         return [state, null]
       }),
     ) as FlipperSolutions['states']
@@ -383,6 +505,7 @@ const inTier = (f: ExtraFlipper, tier: Tier) => tier === 'all' || (tier === 'fed
  */
 export function solveFlippers(shot: Shot, end: ShotEnd = 'entrance', tier: Tier = 'all'): FlipperSolutions[] {
   const to = endPoint(shot, end)
+  const width = end === 'entrance' ? shot.entranceWidth : shot.exitWidth
   const cross = crossSide(to)
   const obstacles = [...mechObstacles(), ...flipperObstacles('base')]
 
@@ -391,11 +514,11 @@ export function solveFlippers(shot: Shot, end: ShotEnd = 'entrance', tier: Tier 
       ? []
       : APPROACHES.map(({ approach, label }) => {
           const side: Side = approach === 'cross' ? cross : cross === 'left' ? 'right' : 'left'
-          return solveWith(flipperSolver(side), side, `${label} · ${side} flipper`, approach, shot, to, obstacles)
+          return solveWith(flipperSolver(side), side, `${label} · ${side} flipper`, approach, shot, to, width, obstacles)
         })
   const extra = extraFlippers
     .filter((f) => inTier(f, tier))
-    .map((f) => solveWith(extraFlipperSolver(f), extraFlipperKey(f.id), f.name, null, shot, to, obstacles))
+    .map((f) => solveWith(extraFlipperSolver(f), extraFlipperKey(f.id), f.name, null, shot, to, width, obstacles))
   const solved = [...main, ...extra]
   return tier === 'all' ? blockMoving(shot, solved) : solved
 }
@@ -919,6 +1042,10 @@ function runEnd(shot: Shot, lane: Lane | null, end: ShotEnd, inflow: Inflow): En
   const tilt = toRadians(playfield.angle)
   const incline = { slope: GRAVITY * Math.sin(tilt), normal: GRAVITY * Math.cos(tilt) }
 
+  // Ball paths off the flippers fired a little early or late can run into
+  // what the solved ones miss. Only read for the timing window: a fed
+  // flipper lined up with this lane's ball path runs it.
+  const moving = lazily(() => [...flipperObstacles('fed'), ...laneObstacles()])
   const flippers = inflow.solved.map((f) => ({
     ...f,
     states: Object.fromEntries(
@@ -927,6 +1054,20 @@ function runEnd(shot: Shot, lane: Lane | null, end: ShotEnd, inflow: Inflow): En
         s && {
           ...s,
           lane: runLane(center, widths, ballRadius, s.arrival, s.arrivalVelocity, incline, response, open),
+          timing: lazily(() =>
+            timingWindow(
+              s.refire,
+              s.fireDistance,
+              s.fireRange,
+              { center, widths, open, response, ballRadius, incline },
+              rollingGravity(incline.slope),
+              (flight) => {
+                const skip = unblocking(f.key, shot)
+                return [...s.obstacles, ...moving()].some((o) => !skip.includes(o.id) && (o.crosses ?? o.touches)(flight))
+              },
+              f.side,
+            ),
+          ),
         },
       ]),
     ) as FlipperSolutions['states'],
@@ -1024,10 +1165,12 @@ const laneShapes = createRoot(() => {
           shot.end === 'double' ? exit.inlet(exit.solved[tier]()) : null,
         )
       const baseLane = createMemo(() => shape('base'))
+      // Should a fed flipper or another lane block every ball path it's
+      // shaped from, it keeps the shape the base flippers' give it.
       const lane = createMemo(() =>
         entrance.solved.all() === entrance.solved.base() && exit.solved.all() === exit.solved.base()
           ? baseLane()
-          : shape('all'),
+          : (shape('all') ?? baseLane()),
       )
       return {
         id: shot.id,
@@ -1101,15 +1244,63 @@ const ROLL_BACK_NUDGE = 0.5
  * held there by a target, captive ball or magnet, or dropped in by a
  * wireform, and out its entrance, wherever the lane's walls carry it.
  */
-function runBack(shot: Shot, lane: Lane): LaneRun | null {
+function runBack(shot: Shot, lane: Lane, from?: { p: Point; t: Point }): LaneRun | null {
   const { center, widths, open, response } = track(shot.id, lane, [], true)
   if (center.length < 2) return null
   const tilt = toRadians(playfield.angle)
   const incline = { slope: GRAVITY * Math.sin(tilt), normal: GRAVITY * Math.cos(tilt) }
   // The track runs exit to entrance, so its first tangent heads for the entrance.
-  const { p, t } = center[0]
+  const { p, t } = from ?? center[0]
   const nudge = { x: t.x * ROLL_BACK_NUDGE, y: t.y * ROLL_BACK_NUDGE }
   return runLane(center, widths, ball.diameter / 2, p, nudge, incline, response, open)
+}
+
+// How far apart down the lane to try letting the ball go, inches.
+const ROLL_OUT_STEP = 0.5
+
+/**
+ * The ball rolling back out of a single-ended lane's entrance: let go at the
+ * far end, or if it drops out through a gap in the walls from there, from
+ * as far up the way the target ball path goes up as it comes back out from.
+ * The last run tried if none does.
+ */
+function rollOut(shot: Shot, lane: Lane): LaneRun | null {
+  const fromEnd = runBack(shot, lane)
+  if (!fromEnd || fromEnd.exitSpeed !== null) return fromEnd
+  const path = shotPathBack(shot, lane)
+  if (!path) return fromEnd
+  let last = fromEnd
+  let along = 0
+  for (let i = 1; i < path.length; i++) {
+    const step = Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y)
+    if (step < 1e-9) continue
+    along += step
+    if (along < ROLL_OUT_STEP) continue
+    along = 0
+    const t = unit({ x: path[i].x - path[i - 1].x, y: path[i].y - path[i - 1].y })
+    const run = runBack(shot, lane, { p: path[i], t })
+    if (!run) continue
+    if (run.exitSpeed !== null) return run
+    last = run
+  }
+  return last
+}
+
+/**
+ * The target ball path into a single-ended lane's entrance, off the base
+ * flippers, run back the other way: from where it leaves the lane down to
+ * the mouth. Null if it doesn't run through.
+ */
+function shotPathBack(shot: Shot, lane: Lane): Point[] | null {
+  const inflow = inflowOf(shot, 'entrance', 'base')
+  const target = targetSolution(shot, 'entrance', inflow.solved)
+  if (!target) return null
+  const [key, state] = target.alignedTo.split('-') as [FlipperKey, BallState]
+  const flipper = inflow.solved.find((f) => f.key === key)
+  if (!flipper) return null
+  const run = runEnd(shot, lane, 'entrance', { ...inflow, solved: [{ ...flipper, states: { [state]: target.solution } }] })
+  const path = run.flippers[0]?.states[state]?.lane?.path
+  return path && path.length > 1 ? [...path].reverse() : null
 }
 
 /**
@@ -1144,7 +1335,7 @@ function fedSettings(feed: Feed): FedSettings | null {
   let entranceSpeed: number | null = null
   let rollBack: FedSettings['rollBack'] = null
   if (rollsBackFrom(shot, feed.end)) {
-    const run = lane && runBack(shot, lane)
+    const run = lane && rollOut(shot, lane)
     const [a, b] = run?.path.slice(-2) ?? []
     if (run && run.exitSpeed !== null && a && b && Math.hypot(b.x - a.x, b.y - a.y) > 1e-9) {
       leaveAt(b, unit({ x: b.x - a.x, y: b.y - a.y }))

@@ -10,7 +10,8 @@ import {
   type Solution,
 } from '../state/solutions'
 import { isHit } from '../geometry/lane'
-import { isHovered, outcomeClass, setHoveredPath } from '../state/view'
+import { difficultyClass, isHovered, outcomeClass, setHoveredPath } from '../state/view'
+import { DIFFICULTY_LABELS, LIMIT_LABELS, difficultyOf, windowMiddle, windowSpan } from '../state/difficulty'
 import type { Departure } from '../physics/shot'
 import { MAX_FLEX } from '../physics/wall'
 import { clearLog, logEntries } from '../state/log'
@@ -24,6 +25,8 @@ const DEPARTURE_LABELS: Record<Departure, string> = {
 
 const formatMs = (seconds: number) => `${Math.round(seconds * 1000)} ms`
 
+const fireTimeText = (t: number) => (t < 0 ? `${formatMs(-t)} before reaching base` : `${formatMs(t)} after reaching base`)
+
 function SolutionDetails(props: { solution: Solution }) {
   const s = () => props.solution
   return (
@@ -35,10 +38,40 @@ function SolutionDetails(props: { solution: Solution }) {
           ? `${formatInches(-s().fireDistance)} short of flipper`
           : `${formatInches(s().fireDistance)} along flipper`}
       </dd>
+      <Show when={s().slipsPast}>
+        {(by) => (
+          <>
+            <dt />
+            <dd class="shot-solution-note">aimed off the middle of the mouth to get past {by()}</dd>
+          </>
+        )}
+      </Show>
       <dt>Timing</dt>
       <dd>
-        {s().fireTime < 0 ? `${formatMs(-s().fireTime)} before reaching base` : `${formatMs(s().fireTime)} after reaching base`}
+        {fireTimeText(s().fireTime)}
       </dd>
+      <Show when={s().lane}>
+        <dt>Window</dt>
+        <Show when={s().timing()} fallback={<dd class="shot-solution-note">doesn't make it through the lane</dd>}>
+          {(w) => (
+            <>
+              <dd class={`shot-outcome ${difficultyClass(s())}`}>
+                {DIFFICULTY_LABELS[difficultyOf(w())]}: {formatMs(windowSpan(w()))}
+              </dd>
+              <dt />
+              <dd class="shot-solution-note">
+                {formatMs(s().fireTime - w().early)} early to {formatMs(w().late - s().fireTime)} late of the timing
+                above; aim for {fireTimeText(windowMiddle(w()))}
+              </dd>
+              <dt />
+              <dd class="shot-solution-note">
+                Earlier {w().earlyLimit ? LIMIT_LABELS[w().earlyLimit!] : 'is as early as the flipper can be fired'}; later{' '}
+                {w().lateLimit ? LIMIT_LABELS[w().lateLimit!] : 'is as late as the flipper can be fired'}
+              </dd>
+            </>
+          )}
+        </Show>
+      </Show>
       <dt>Departs</dt>
       <dd>
         {formatDegrees(s().departureAngle)} at {Math.round(s().speed)} in/s

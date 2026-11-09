@@ -1,17 +1,18 @@
 import { createMemo, createRoot, createSignal } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { viewedRuns, type BallState, type Solution } from './solutions'
+import { difficultyOf } from './difficulty'
 import type { Feed, FlipperKey, ShotEnd } from './shots'
 
 // What the shot paths are colored by:
-// - origin: how the ball arrived on the flipper (inlane or cradle)
+// - difficulty: how far off the timing can be and still make the shot
 // - smoothness: how cleanly the ball gets through the lane
 // - speed: the ball's speed along its path
-export type PathColoring = 'origin' | 'smoothness' | 'speed'
+export type PathColoring = 'difficulty' | 'smoothness' | 'speed'
 
 export const PATH_COLORINGS: { label: string; value: PathColoring }[] = [
-  { label: 'Origin', value: 'origin' },
   { label: 'Smoothness', value: 'smoothness' },
+  { label: 'Difficulty', value: 'difficulty' },
   { label: 'Speed', value: 'speed' },
 ]
 
@@ -105,15 +106,18 @@ export function speedColor(speed: number) {
 /** Class that sets `--path-color` to a solution's lane outcome, whatever the path coloring. */
 export const outcomeClass = (s: Solution | null | undefined) => `outcome--${s?.lane?.outcome ?? 'none'}`
 
+/** Class that sets `--path-color` to how hard a solution's shot is. */
+export const difficultyClass = (s: Solution | null | undefined) => `difficulty--${difficultyOf(s?.timing() ?? null)}`
+
 /**
  * Class and inline style that set `--path-color` for a solution under the
  * current coloring. Speed coloring uses the departure speed for parts of the
  * path drawn in a single color.
  */
-export function pathColor(state: BallState, s: Solution | null | undefined) {
+export function pathColor(s: Solution | null | undefined) {
   switch (pathColoring()) {
-    case 'origin':
-      return { class: `origin--${state}`, style: {} }
+    case 'difficulty':
+      return { class: difficultyClass(s), style: {} }
     case 'smoothness':
       return { class: outcomeClass(s), style: {} }
     case 'speed':
