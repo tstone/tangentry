@@ -1,0 +1,501 @@
+{
+  "format": "tangentry",
+  "version": 1,
+  "playfield": { "width": 20.25, "height": 45, "angle": 6.5, "sideRail": 0.5 },
+  "flippers": {
+    "centerLine": 9.6,
+    "pivotFromBottom": 7.25,
+    "alignment": "top",
+    "spacingMode": "pivots",
+    "spacing": 7,
+    "profile": "modern-standard",
+    "friction": 0.2,
+    "strokeAngle": 55,
+    "coil": "FL-11630"
+  },
+  "inlanes": { "angle": 35 },
+  "ball": { "diameter": 1.0625, "inlaneSpeed": 15 },
+  "walls": {
+    "material": "ss304",
+    "thickness": 0.06,
+    "height": 1.25,
+    "restitution": 0.8,
+    "spadeStiffness": 10000,
+    "spikeStiffness": 1500
+  },
+  "shots": [
+    {
+      "id": 1,
+      "name": "Left Orbit",
+      "entrance": { "x": 3, "y": 25.0625 },
+      "entranceWidth": 1.5625,
+      "exitWidth": 1.3125,
+      "exit": { "x": 1.1875, "y": 33.9375, "angle": 90 },
+      "continuity": "g2",
+      "entranceWeight": 1.1,
+      "exitWeight": 1,
+      "flipper": "auto",
+      "ballState": "inlane",
+      "split": false,
+      "entranceOffset": 0,
+      "entrancePivot": -6,
+      "leadIn": 0,
+      "exitOffset": 0,
+      "exitPivot": 0,
+      "exitLeadIn": 0,
+      "funnelLength": null,
+      "via": [],
+      "mounts": {
+        "left": [
+          { "id": 1, "kind": "spade", "at": 0.05 },
+          { "id": 2, "kind": "spike", "at": 0.5 },
+          { "id": 3, "kind": "spade", "at": 0.95 }
+        ],
+        "right": [
+          { "id": 4, "kind": "spade", "at": 0.05 },
+          { "id": 5, "kind": "spike", "at": 0.5 },
+          { "id": 6, "kind": "spade", "at": 0.95 }
+        ]
+      },
+      "feed": null,
+      "end": "open",
+      "ramp": false,
+      "exitOrigin": { "flipper": "auto", "ballState": "inlane", "split": false, "feed": null },
+      "horseshoe": { "rotation": 180, "radius": 2.5 },
+      "openSpans": [],
+      "wallExtent": {
+        "left": { "from": 0, "to": 1 },
+        "right": { "from": 0.41057369853095604, "to": 1 }
+      },
+      "bows": {
+        "left": { "from": 0, "to": 1, "depth": 0 },
+        "right": { "from": 0, "to": 1, "depth": 0 }
+      },
+      "unionWith": null
+    },
+    {
+      "id": 2,
+      "name": "Avengers Tower",
+      "entrance": { "x": 4.3125, "y": 29.25 },
+      "entranceWidth": 1.75,
+      "exitWidth": 1.375,
+      "exit": { "x": 2.875, "y": 37.125, "angle": 90 },
+      "continuity": "g2",
+      "entranceWeight": 1.35,
+      "exitWeight": 1,
+      "flipper": "auto",
+      "ballState": "inlane",
+      "split": false,
+      "entranceOffset": -0.125,
+      "entrancePivot": 1,
+      "leadIn": 0.9375,
+      "exitOffset": 0,
+      "exitPivot": 0,
+      "exitLeadIn": 0,
+      "funnelLength": null,
+      "via": [],
+      "mounts": {
+        "left": [
+          { "id": 7, "kind": "spade", "at": 0.05 },
+          { "id": 8, "kind": "spike", "at": 0.5 },
+          { "id": 9, "kind": "spade", "at": 0.95 }
+        ],
+        "right": [
+          { "id": 10, "kind": "spade", "at": 0.05 },
+          { "id": 11, "kind": "spike", "at": 0.5 },
+          { "id": 12, "kind": "spade", "at": 0.95 }
+        ]
+      },
+      "feed": null,
+      "end": "open",
+      "ramp": false,
+      "exitOrigin": { "flipper": "auto", "ballState": "inlane", "split": false, "feed": null },
+      "horseshoe": { "rotation": 180, "radius": 2.5 },
+      "openSpans": [],
+      "wallExtent": {
+        "left": { "from": 0, "to": 1 },
+        "right": { "from": 0.5727161412054995, "to": 1 }
+      },
+      "bows": {
+        "left": { "from": 0, "to": 1, "depth": 0 },
+        "right": { "from": 0, "to": 1, "depth": 0 }
+      },
+      "unionWith": null
+    },
+    {
+      "id": 3,
+      "name": "Through the Pops",
+      "entrance": { "x": 5.8125, "y": 41.5625 },
+      "entranceWidth": 1.875,
+      "exitWidth": 1.875,
+      "exit": { "x": 5.6875, "y": 42.5, "angle": 95 },
+      "continuity": "g2",
+      "entranceWeight": 1.3,
+      "exitWeight": 0.9,
+      "flipper": "auto",
+      "ballState": "inlane",
+      "split": false,
+      "entranceOffset": 0,
+      "entrancePivot": -3.5,
+      "leadIn": 0,
+      "exitOffset": 0,
+      "exitPivot": 0,
+      "exitLeadIn": 0,
+      "funnelLength": null,
+      "via": [],
+      "mounts": {
+        "left": [
+          { "id": 13, "kind": "spade", "at": 0.05 },
+          { "id": 14, "kind": "spike", "at": 0.5 },
+          { "id": 15, "kind": "spade", "at": 0.95 }
+        ],
+        "right": [
+          { "id": 16, "kind": "spade", "at": 0.05 },
+          { "id": 17, "kind": "spike", "at": 0.5 },
+          { "id": 18, "kind": "spade", "at": 0.95 }
+        ]
+      },
+      "feed": null,
+      "end": "horseshoe",
+      "ramp": true,
+      "exitOrigin": { "flipper": "auto", "ballState": "inlane", "split": false, "feed": null },
+      "horseshoe": { "rotation": 145, "radius": 1.125 },
+      "openSpans": [],
+      "wallExtent": {
+        "left": { "from": 0, "to": 1 },
+        "right": { "from": 0, "to": 1 }
+      },
+      "bows": {
+        "left": { "from": 0, "to": 1, "depth": 0 },
+        "right": { "from": 0, "to": 1, "depth": 0 }
+      },
+      "unionWith": null
+    },
+    {
+      "id": 4,
+      "name": "Center Ramp",
+      "entrance": { "x": 9.125, "y": 35.75 },
+      "entranceWidth": 2.3125,
+      "exitWidth": 1.625,
+      "exit": { "x": 9.0625, "y": 43.4375, "angle": 90 },
+      "continuity": "g2",
+      "entranceWeight": 1.05,
+      "exitWeight": 1,
+      "flipper": "auto",
+      "ballState": "inlane",
+      "split": false,
+      "entranceOffset": 0,
+      "entrancePivot": -6,
+      "leadIn": 0,
+      "exitOffset": 0,
+      "exitPivot": 0,
+      "exitLeadIn": 0,
+      "funnelLength": null,
+      "via": [],
+      "mounts": {
+        "left": [
+          { "id": 19, "kind": "spade", "at": 0.05 },
+          { "id": 20, "kind": "spike", "at": 0.5 },
+          { "id": 21, "kind": "spade", "at": 0.95 }
+        ],
+        "right": [
+          { "id": 22, "kind": "spade", "at": 0.05 },
+          { "id": 23, "kind": "spike", "at": 0.5 },
+          { "id": 24, "kind": "spade", "at": 0.95 }
+        ]
+      },
+      "feed": null,
+      "end": "horseshoe",
+      "ramp": true,
+      "exitOrigin": { "flipper": "auto", "ballState": "inlane", "split": false, "feed": null },
+      "horseshoe": { "rotation": 200, "radius": 2.25 },
+      "openSpans": [],
+      "wallExtent": {
+        "left": { "from": 0, "to": 1 },
+        "right": { "from": 0, "to": 1 }
+      },
+      "bows": {
+        "left": { "from": 0, "to": 1, "depth": 0 },
+        "right": { "from": 0, "to": 1, "depth": 0 }
+      },
+      "unionWith": null
+    },
+    {
+      "id": 5,
+      "name": "Right Ramp",
+      "entrance": { "x": 12, "y": 35.8125 },
+      "entranceWidth": 2.3125,
+      "exitWidth": 2.25,
+      "exit": { "x": 15.125, "y": 43.75, "angle": 59 },
+      "continuity": "g2",
+      "entranceWeight": 1.35,
+      "exitWeight": 1.15,
+      "flipper": "auto",
+      "ballState": "inlane",
+      "split": false,
+      "entranceOffset": 0,
+      "entrancePivot": 0,
+      "leadIn": 0,
+      "exitOffset": 0,
+      "exitPivot": 0,
+      "exitLeadIn": 0,
+      "funnelLength": null,
+      "via": [],
+      "mounts": {
+        "left": [
+          { "id": 25, "kind": "spade", "at": 0.05 },
+          { "id": 26, "kind": "spike", "at": 0.5 },
+          { "id": 27, "kind": "spade", "at": 0.95 }
+        ],
+        "right": [
+          { "id": 28, "kind": "spade", "at": 0.05 },
+          { "id": 29, "kind": "spike", "at": 0.5 },
+          { "id": 30, "kind": "spade", "at": 0.95 }
+        ]
+      },
+      "feed": null,
+      "end": "open",
+      "ramp": true,
+      "exitOrigin": { "flipper": "auto", "ballState": "inlane", "split": false, "feed": null },
+      "horseshoe": { "rotation": 180, "radius": 2.5 },
+      "openSpans": [],
+      "wallExtent": {
+        "left": { "from": 0, "to": 1 },
+        "right": { "from": 0.21822722924455878, "to": 0.6811700003737308 }
+      },
+      "bows": {
+        "left": { "from": 0, "to": 1, "depth": 0 },
+        "right": { "from": 0, "to": 1, "depth": 0 }
+      },
+      "unionWith": 9
+    },
+    {
+      "id": 6,
+      "name": "Upper Flipper Loop",
+      "entrance": { "x": 14, "y": 34.1875 },
+      "entranceWidth": 1.875,
+      "exitWidth": 1.3125,
+      "exit": { "x": 15.625, "y": 40.6875, "angle": 134 },
+      "continuity": "g2",
+      "entranceWeight": 1.35,
+      "exitWeight": 1.15,
+      "flipper": "auto",
+      "ballState": "inlane",
+      "split": false,
+      "entranceOffset": 0.1875,
+      "entrancePivot": -41.5,
+      "leadIn": 0,
+      "exitOffset": 0,
+      "exitPivot": 0,
+      "exitLeadIn": 0,
+      "funnelLength": null,
+      "via": [],
+      "mounts": {
+        "left": [
+          { "id": 31, "kind": "spade", "at": 0.05 },
+          { "id": 32, "kind": "spike", "at": 0.5 },
+          { "id": 33, "kind": "spade", "at": 0.95 }
+        ],
+        "right": [
+          { "id": 34, "kind": "spade", "at": 0.05 },
+          { "id": 35, "kind": "spike", "at": 0.5 },
+          { "id": 36, "kind": "spade", "at": 0.95 }
+        ]
+      },
+      "feed": null,
+      "end": "open",
+      "ramp": false,
+      "exitOrigin": { "flipper": "auto", "ballState": "inlane", "split": false, "feed": null },
+      "horseshoe": { "rotation": 180, "radius": 2.5 },
+      "openSpans": [],
+      "wallExtent": {
+        "left": { "from": 0.06203760101191212, "to": 1 },
+        "right": { "from": 0, "to": 1 }
+      },
+      "bows": {
+        "left": { "from": 0, "to": 1, "depth": 0 },
+        "right": { "from": 0, "to": 1, "depth": 0 }
+      },
+      "unionWith": null
+    },
+    {
+      "id": 7,
+      "name": "Captain America Ramp",
+      "entrance": { "x": 13.9375, "y": 29.4375 },
+      "entranceWidth": 1.8125,
+      "exitWidth": 1.6875,
+      "exit": { "x": 14.9375, "y": 32.875, "angle": 73 },
+      "continuity": "g2",
+      "entranceWeight": 1,
+      "exitWeight": 0.9,
+      "flipper": "auto",
+      "ballState": "inlane",
+      "split": false,
+      "entranceOffset": 0,
+      "entrancePivot": 0,
+      "leadIn": 0,
+      "exitOffset": 0,
+      "exitPivot": 0,
+      "exitLeadIn": 0,
+      "funnelLength": null,
+      "via": [],
+      "mounts": {
+        "left": [
+          { "id": 37, "kind": "spade", "at": 0.05 },
+          { "id": 38, "kind": "spike", "at": 0.5 },
+          { "id": 39, "kind": "spade", "at": 0.95 }
+        ],
+        "right": [
+          { "id": 40, "kind": "spade", "at": 0.05 },
+          { "id": 41, "kind": "spike", "at": 0.5 },
+          { "id": 42, "kind": "spade", "at": 0.95 }
+        ]
+      },
+      "feed": null,
+      "end": "open",
+      "ramp": false,
+      "exitOrigin": { "flipper": "auto", "ballState": "inlane", "split": false, "feed": null },
+      "horseshoe": { "rotation": 180, "radius": 2.5 },
+      "openSpans": [],
+      "wallExtent": {
+        "left": { "from": 0, "to": 1 },
+        "right": { "from": 0, "to": 1 }
+      },
+      "bows": {
+        "left": { "from": 0, "to": 1, "depth": 0 },
+        "right": { "from": 0, "to": 1, "depth": 0 }
+      },
+      "unionWith": null
+    },
+    {
+      "id": 8,
+      "name": "Right Orbit",
+      "entrance": { "x": 15.5625, "y": 23.125 },
+      "entranceWidth": 1.9375,
+      "exitWidth": 1.25,
+      "exit": { "x": 19.0625, "y": 36.25, "angle": 81 },
+      "continuity": "g2",
+      "entranceWeight": 1.1,
+      "exitWeight": 0.95,
+      "flipper": "auto",
+      "ballState": "inlane",
+      "split": false,
+      "entranceOffset": 0.25,
+      "entrancePivot": 6,
+      "leadIn": 0,
+      "exitOffset": 0,
+      "exitPivot": 0,
+      "exitLeadIn": 0,
+      "funnelLength": null,
+      "via": [],
+      "mounts": {
+        "left": [
+          { "id": 43, "kind": "spade", "at": 0.05 },
+          { "id": 44, "kind": "spike", "at": 0.5 },
+          { "id": 45, "kind": "spade", "at": 0.95 }
+        ],
+        "right": [
+          { "id": 46, "kind": "spade", "at": 0.05 },
+          { "id": 47, "kind": "spike", "at": 0.5 },
+          { "id": 48, "kind": "spade", "at": 0.95 }
+        ]
+      },
+      "feed": null,
+      "end": "open",
+      "ramp": false,
+      "exitOrigin": { "flipper": "auto", "ballState": "inlane", "split": false, "feed": null },
+      "horseshoe": { "rotation": 180, "radius": 2.5 },
+      "openSpans": [],
+      "wallExtent": {
+        "left": { "from": 0.28296036299260746, "to": 1 },
+        "right": { "from": 0, "to": 1 }
+      },
+      "bows": {
+        "left": { "from": 0, "to": 1, "depth": 0 },
+        "right": { "from": 0, "to": 1, "depth": 0 }
+      },
+      "unionWith": null
+    },
+    {
+      "id": 9,
+      "name": "Right Ramp (Right)",
+      "entrance": { "x": 12.3125, "y": 36 },
+      "entranceWidth": 2.5,
+      "exitWidth": 2.25,
+      "exit": { "x": 14.25, "y": 43.875, "angle": 90 },
+      "continuity": "g2",
+      "entranceWeight": 1.1,
+      "exitWeight": 1,
+      "flipper": "auto",
+      "ballState": "inlane",
+      "split": false,
+      "ramp": true,
+      "entranceOffset": 0.375,
+      "entrancePivot": -18,
+      "leadIn": 0,
+      "exitOffset": 0,
+      "exitPivot": 0,
+      "exitLeadIn": 0,
+      "funnelLength": null,
+      "via": [],
+      "mounts": {
+        "left": [
+          { "id": 49, "kind": "spade", "at": 0.05 },
+          { "id": 50, "kind": "spike", "at": 0.5 },
+          { "id": 51, "kind": "spade", "at": 0.95 }
+        ],
+        "right": [
+          { "id": 52, "kind": "spade", "at": 0.05 },
+          { "id": 53, "kind": "spike", "at": 0.5 },
+          { "id": 54, "kind": "spade", "at": 0.95 }
+        ]
+      },
+      "feed": null,
+      "end": "open",
+      "exitOrigin": { "flipper": "auto", "ballState": "inlane", "split": false, "feed": null },
+      "horseshoe": { "rotation": 180, "radius": 2.5 },
+      "openSpans": [],
+      "wallExtent": {
+        "left": { "from": 0.2908320632970889, "to": 0.6419673779658955 },
+        "right": { "from": 0, "to": 1 }
+      },
+      "bows": {
+        "left": { "from": 0, "to": 1, "depth": 0 },
+        "right": { "from": 0, "to": 1, "depth": 0 }
+      },
+      "unionWith": 5
+    }
+  ],
+  "reserved": [
+    {
+      "id": 1,
+      "name": "Target",
+      "shootable": true,
+      "kind": "circle",
+      "center": { "x": 5.0625, "y": 35.0625 },
+      "radius": 1.0625
+    },
+    {
+      "id": 2,
+      "name": "Captive Ball",
+      "shootable": false,
+      "kind": "circle",
+      "center": { "x": 15.0625, "y": 26.8125 },
+      "radius": 0.5625
+    }
+  ],
+  "extraFlippers": [
+    {
+      "id": 1,
+      "name": "Upper Flipper",
+      "pivot": { "x": 3.125, "y": 28.5625 },
+      "side": "left",
+      "profile": "modern-standard",
+      "restAngle": 30,
+      "entranceSpeed": 20,
+      "coil": "FL-11630",
+      "feed": { "id": 2, "end": "entrance" },
+      "feedOffset": 0.125
+    }
+  ]
+}

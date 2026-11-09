@@ -10,6 +10,7 @@ import { runSmoothen, smoothing } from '../state/smoothenRun'
 import { busy, removeFocused } from '../state/removeFocused'
 import { log } from '../state/log'
 import ResetDialog from './ResetDialog'
+import LibraryMenu from './LibraryMenu'
 
 // The kinds of shot Add shot offers.
 const ADD_SHOT_OPTIONS: { label: string; value: ShotType; hint: string }[] = [
@@ -234,6 +235,7 @@ export default function Toolbar() {
 
       <div class="tool-strip-divider" role="separator" />
 
+      <LibraryMenu disabled={busy()} />
       <ResetDialog disabled={busy()} />
     </div>
   )
