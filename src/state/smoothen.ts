@@ -183,6 +183,7 @@ export async function smoothen(
     horseshoe: { ...live.horseshoe },
     exitOrigin: { ...live.exitOrigin },
     wallExtent: { left: { ...live.wallExtent.left }, right: { ...live.wallExtent.right } },
+    bows: { left: { ...live.bows.left }, right: { ...live.bows.right } },
   }
   // Lanes feeding either end are left as they are; the ball still runs
   // through them.

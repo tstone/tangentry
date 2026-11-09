@@ -241,13 +241,56 @@ export const laneWidths = (curve: CurveSample[], width: LaneWidth) => {
   })
 }
 
+// One wall bowed out away from the lane over a stretch of it, as on a ramp
+// whose wall swings wide to give a ball coming in at an angle room to turn
+// into the bend. `from` and `to` are fractions of the distance along the
+// center line to the exit. `depth` is how far the wall stands out at the
+// middle of the stretch, in inches: negative bows it in, and 0 leaves the
+// wall unbowed.
+export type Bow = { from: number; to: number; depth: number }
+
+// Unbowed, over the whole lane, so a bow starts out spanning all of it.
+export const NO_BOW: Bow = { from: 0, to: 1, depth: 0 }
+
+/**
+ * How far a bowed wall stands out from where it would be, at each sample
+ * of the center line, where `length` is the distance to the exit. The bow
+ * eases out and back in, sin², so the wall doesn't kink where it starts or
+ * ends.
+ */
+export function bowDepths(curve: CurveSample[], bow: Bow, length: number): number[] {
+  const from = Math.min(bow.from, bow.to) * length
+  const to = Math.max(bow.from, bow.to) * length
+  if (bow.depth === 0 || to - from < 1e-9) return curve.map(() => 0)
+  return curve.map((q) => (q.s <= from || q.s >= to ? 0 : bow.depth * Math.sin((Math.PI * (q.s - from)) / (to - from)) ** 2))
+}
+
 /**
  * The curve pushed sideways to the given side (1 or -1) by half the lane
- * width, less `inset`.
+ * width, less `inset`, and out by `bulge` at each sample where the wall
+ * there bows.
  */
-export function offsetCurve(curve: CurveSample[], side: number, width: LaneWidth, inset = 0): Point[] {
+export function offsetCurve(curve: CurveSample[], side: number, width: LaneWidth, inset = 0, bulge: number[] = []): Point[] {
   const w = laneWidths(curve, width)
-  return curve.map((q, i) => add(q.p, scale(normal(q.t), side * (w[i] / 2 - inset))))
+  return curve.map((q, i) => add(q.p, scale(normal(q.t), side * (w[i] / 2 + (bulge[i] ?? 0) - inset))))
+}
+
+/**
+ * The line midway between a lane's walls, where each wall stands out from
+ * the center line by `left` and `right` at each sample, as a bowed wall
+ * does. It's the center line itself where neither bows.
+ */
+export function midline(curve: CurveSample[], left: number[], right: number[]): CurveSample[] {
+  if (left.every((d) => d === 0) && right.every((d) => d === 0)) return curve
+  // `normal` points right, so the midpoint shifts half the difference that way.
+  const points = curve.map((q, i) => add(q.p, scale(normal(q.t), (right[i] - left[i]) / 2)))
+  const last = points.length - 1
+  return withLength(
+    points.map((p, i) => {
+      const along = sub(points[Math.min(last, i + 1)], points[Math.max(0, i - 1)])
+      return { p, t: Math.hypot(along.x, along.y) > 1e-12 ? unit(along) : curve[i].t }
+    }),
+  )
 }
 
 export type WallContact = {

@@ -34,6 +34,7 @@ import {
   replaceExtraFlippers,
   type ExtraFlipper,
 } from './extraFlippers'
+import { NO_BOW } from '../geometry/lane'
 import { COILS, FLIPPER_PROFILES } from '../physics/drive'
 import { MOUNT_KINDS, WALL_MATERIALS } from '../physics/wall'
 
@@ -284,6 +285,9 @@ function readShot(input: unknown, path: string, centerLine: number): { shot: Sho
     // Missing from files saved before lanes could have open spans.
     openSpans: readOpenSpans(s.openSpans, `${path}.openSpans`),
     wallExtent: readWallExtent(s.wallExtent, `${path}.wallExtent`),
+    bows: readBows(s.bows, `${path}.bows`),
+    // Missing from files saved before lanes could share walls.
+    unionWith: s.unionWith == null ? null : number(s.unionWith, `${path}.unionWith`),
   }
   return { shot, link }
 }
@@ -367,6 +371,21 @@ function readWallExtent(input: unknown, path: string): Shot['wallExtent'] {
   const side = (side: WallSide) => {
     const at = object(extent[side], `${path}.${side}`)
     return { from: number(at.from, `${path}.${side}.from`), to: number(at.to, `${path}.${side}.to`) }
+  }
+  return { left: side('left'), right: side('right') }
+}
+
+function readBows(input: unknown, path: string): Shot['bows'] {
+  // Missing from files saved before walls could bow.
+  if (input === undefined) return { left: { ...NO_BOW }, right: { ...NO_BOW } }
+  const bows = object(input, path)
+  const side = (side: WallSide) => {
+    const bow = object(bows[side], `${path}.${side}`)
+    return {
+      from: number(bow.from, `${path}.${side}.from`),
+      to: number(bow.to, `${path}.${side}.to`),
+      depth: number(bow.depth, `${path}.${side}.depth`),
+    }
   }
   return { left: side('left'), right: side('right') }
 }
@@ -467,8 +486,15 @@ export function importProject(json: string) {
   }
   const checkFlipper = (flipper: TargetFlipper) =>
     flipper.startsWith('extra') && !flipperKeys.has(flipper) ? ('auto' as const) : flipper
+  // Shared walls only hold between two shots that both made it into the
+  // file, each naming the other.
+  const checkUnion = (s: Shot) => {
+    const other = s.unionWith === null ? undefined : merged.find((o) => o.id === s.unionWith)
+    return other && other.id !== s.id && other.unionWith === s.id ? other.id : null
+  }
   const shotList = merged.map((s) => ({
     ...s,
+    unionWith: checkUnion(s),
     feed: checkFeed(s.feed),
     flipper: checkFlipper(s.flipper),
     exitOrigin: { ...s.exitOrigin, feed: checkFeed(s.exitOrigin.feed), flipper: checkFlipper(s.exitOrigin.flipper) },

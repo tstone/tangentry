@@ -353,7 +353,8 @@ function crossings(lane: Lane, obstacles: Obstacle[], stride: number, through = 
   const intervals: Record<Kind, Interval[]> = { safe: [], lane: [], reserved: [] }
   const current: Record<Kind, Interval | null> = { safe: null, lane: null, reserved: null }
   const owners = new Set<number>()
-  const center = lane.center
+  // Midway between the walls, which a bowed wall pushes off the center line.
+  const center = lane.middle
   for (let i = 0; i < center.length; i += stride) {
     const q = center[i]
     if (q.s > through) break

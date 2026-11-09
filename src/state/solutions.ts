@@ -66,9 +66,11 @@ import { flipperOutline, type Point } from '../geometry/flipper'
 import { pathTouchesLine, pathTouchesPolygon, polygonsOverlap } from '../geometry/overlap'
 import {
   appendTurn,
+  bowDepths,
   runLane,
   laneCenterLine,
   laneWidths,
+  midline,
   normal,
   offsetCurve,
   tightestBend,
@@ -360,7 +362,8 @@ const laneObstacles = (): Obstacle[] =>
 function unblocking(key: FlipperKey, shot: Shot) {
   const feed = extraFlippers.find((f) => extraFlipperKey(f.id) === key)
   const from = feed && flipperFeed(feed)
-  return [key, `lane${shot.id}`, ...(from ? [`lane${from.id}`] : [])]
+  const partner = shot.unionWith === null ? [] : [`lane${shot.unionWith}`]
+  return [key, `lane${shot.id}`, ...partner, ...(from ? [`lane${from.id}`] : [])]
 }
 
 /** The first obstacle a ball path's flight runs into, leaving out those in `skip`. */
@@ -540,6 +543,8 @@ export const WALL_SIDES: { side: WallSide; offset: number; label: string }[] = [
 export type LaneWall = {
   side: WallSide
   points: Point[]
+  // How far the wall bows out at each point, inches.
+  bulge: number[]
   // Distance along the wall at each point, inches.
   lengths: number[]
   // Fraction of the speed into the wall the ball bounces back with at each point.
@@ -548,8 +553,12 @@ export type LaneWall = {
   flexPerSpeed: number[]
   // Mounts where they sit on the wall, with the direction away from the lane.
   mounts: { id: number; kind: MountKind; point: Point; outward: Point }[]
-  // Points with no wall: along an open span, or past where the wall is cut short.
+  // Points with no wall: along an open span, past where the wall is cut
+  // short, or inside the lane it shares walls with.
   open: boolean[]
+  // Points where the ball meets no wall on this side: as `open`, but inside
+  // a lane it shares walls with, the ball runs on to that lane's far wall.
+  ballOpen: boolean[]
   // First and last point of each stretch of this wall.
   pieces: Piece[]
 }
@@ -561,6 +570,10 @@ export type Lane = {
   exitDistance: number
   // Wall-to-wall width at each sample of the center line.
   widths: number[]
+  // The line midway between the walls, sample for sample with the center
+  // line. It's the center line itself unless a wall bows out. The ball runs
+  // between the walls, so its runs follow this line.
+  middle: CurveSample[]
   // Samples of the center line with no wall either side of them.
   open: boolean[]
   // First and last sample of each stretch with a wall on either side.
@@ -588,6 +601,8 @@ export type Lane = {
   exitReached: boolean
   // The ball is wider than the lane.
   tooNarrow: boolean
+  // Whether any of its walls comes down inside a lane it shares walls with.
+  shared: boolean
   // Furthest a wall runs past a side rail, inches; 0 if the lane fits.
   overRail: number
   // Tightest radius of the center line and its distance along it.
@@ -814,8 +829,13 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
       shot.openSpans.some((span) => q.s >= span.from * exitDistance && q.s <= span.to * exitDistance),
   )
 
+  // How far each wall bows out at each sample. Bows only reach as far as the exit.
+  const bulge = {
+    left: bowDepths(center, shot.bows.left, exitDistance),
+    right: bowDepths(center, shot.bows.right, exitDistance),
+  }
   const laneWalls: LaneWall[] = WALL_SIDES.map(({ side, offset }) => {
-    const points = offsetCurve(center, offset, width)
+    const points = offsetCurve(center, offset, width, 0, bulge[side])
     let length = 0
     const lengths = points.map((p, i) => (length += i > 0 ? Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) : 0))
     // Each mount goes on the wall point nearest its distance along the wall.
@@ -835,6 +855,7 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
     return {
       side,
       points,
+      bulge: bulge[side],
       lengths,
       restitution: stiffness.map((k) => walls.restitution * flexRestitution(k, mass)),
       flexPerSpeed: stiffness.map((k) => flexPerSpeed(k, mass)),
@@ -845,14 +866,17 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
         outward: scaleNormal(center[m.index].t, offset),
       })),
       open,
+      ballOpen: open,
       pieces,
     }
   })
   const open = center.map((_, i) => laneWalls.every((w) => w.open[i]))
+  const widths = laneWidths(center, width).map((w, i) => w + bulge.left[i] + bulge.right[i])
   return {
     center,
     exitDistance,
-    widths: laneWidths(center, width),
+    widths,
+    middle: midline(center, bulge.left, bulge.right),
     open,
     pieces: walledPieces(open),
     walls: laneWalls,
@@ -863,7 +887,9 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
     exitAlignedTo: back?.alignedTo ?? null,
     exitSplitWith: back?.splitWith ?? null,
     exitReached: back?.reached ?? true,
-    tooNarrow: Math.min(width.entrance, width.exit) <= ball.diameter,
+    // A wall bowed in can pinch the lane narrower than either end.
+    tooNarrow: Math.min(width.entrance, width.exit, ...widths) <= ball.diameter,
+    shared: false,
     overRail: Math.max(
       0,
       ...laneWalls.flatMap((w) =>
@@ -871,6 +897,146 @@ export function shapeLane(shot: Shot, inlet: Inlet, exitInlet: Inlet | null = nu
       ),
     ),
     tightest: tightestBend(center),
+  }
+}
+
+/**
+ * Where the line from `o` along `d` crosses `line` nearest `o`: how far along
+ * it in multiples of `d`, negative behind `o`, the segment crossed and how
+ * far along that segment. Null if it never does.
+ */
+function lineHit(o: Point, d: Point, line: Point[]) {
+  let best: { t: number; seg: number; u: number } | null = null
+  for (let j = 0; j < line.length - 1; j++) {
+    const a = line[j]
+    const e = { x: line[j + 1].x - a.x, y: line[j + 1].y - a.y }
+    const den = d.x * e.y - d.y * e.x
+    if (Math.abs(den) < 1e-12) continue
+    const w = { x: a.x - o.x, y: a.y - o.y }
+    const u = (w.x * d.y - w.y * d.x) / den
+    if (u < 0 || u > 1) continue
+    const t = (w.x * e.y - w.y * e.x) / den
+    if (!best || Math.abs(t) < Math.abs(best.t)) best = { t, seg: j, u }
+  }
+  return best
+}
+
+// How much further a wall has to reach to come down inside the other lane, inches.
+const SHARED_MARGIN = 1e-6
+
+// Steepest the wall the ball meets may come in or out across the lane, per
+// inch along it, where two lanes sharing walls part or meet.
+const SHARED_TAPER = 0.5
+
+/**
+ * How far out the ball meets each wall beyond where it stands, `reach`, but
+ * coming in and out no steeper than SHARED_TAPER. Straight out across the
+ * lane, the far wall of the lane it shares walls with gives way all at once
+ * to its own where the two part; the ball only follows its own lane, and so
+ * meets a short wedge leading up to where they part instead of a step.
+ */
+function eased(center: CurveSample[], reach: number[]) {
+  const r = [...reach]
+  for (let i = 1; i < r.length; i++) r[i] = Math.min(r[i], r[i - 1] + SHARED_TAPER * (center[i].s - center[i - 1].s))
+  for (let i = r.length - 2; i >= 0; i--) r[i] = Math.min(r[i], r[i + 1] + SHARED_TAPER * (center[i + 1].s - center[i].s))
+  return r
+}
+
+/**
+ * A lane sharing walls with `partner`'s. Where one of its walls runs inside
+ * the partner lane, the wall comes down, and the ball runs on across the
+ * partner lane to its far wall: straight out across the lane, that wall is
+ * as far as the space the two take up together reaches. Each wall that
+ * stays up ends where it meets the partner's. The lane itself if it has no
+ * partner, or its walls never run inside the partner's.
+ */
+export function joinLanes(own: Lane, partner: Lane | null): Lane {
+  if (!partner) return own
+  const reach = { left: own.center.map(() => 0), right: own.center.map(() => 0) }
+  const laneWalls = own.walls.map((wall, k): LaneWall => {
+    const { side, offset } = WALL_SIDES[k]
+    const ballOpen = [...wall.ballOpen]
+    const restitution = [...wall.restitution]
+    const flexPerSpeed = [...wall.flexPerSpeed]
+    own.center.forEach((c, i) => {
+      const out = scaleNormal(c.t, offset)
+      const d = (wall.points[i].x - c.p.x) * out.x + (wall.points[i].y - c.p.y) * out.y
+      const hits = partner.walls.map((w) => lineHit(c.p, out, w.points))
+      if (!hits[0] || !hits[1]) return
+      const far = hits[0].t > hits[1].t ? 0 : 1
+      const near = hits[1 - far]!.t
+      const at = hits[far]!
+      // The wall's inside the partner lane only if the partner's walls are either side of it.
+      if (near > d - SHARED_MARGIN || at.t < d + SHARED_MARGIN) return
+      reach[side][i] = at.t - d
+      // The ball meets the partner's far wall there, as it stands.
+      const by = partner.walls[far]
+      const j = at.u < 0.5 ? at.seg : at.seg + 1
+      ballOpen[i] = by.ballOpen[j]
+      restitution[i] = by.restitution[j]
+      flexPerSpeed[i] = by.flexPerSpeed[j]
+    })
+    const down = reach[side].map((r) => r > 0)
+    // Where a wall goes from standing to down, its last point standing is
+    // moved up to where it meets the partner's walls, so it stops right there.
+    const points = [...wall.points]
+    const gone = [...down]
+    // Points moved up to where the wall meets the partner's: where the two lanes part.
+    const splits = new Set<number>()
+    for (let i = 0; i + 1 < down.length; i++) {
+      if (down[i] === down[i + 1]) continue
+      const [stands, falls] = down[i] ? [i + 1, i] : [i, i + 1]
+      // A point down between two standing ones is left down.
+      if (!gone[falls] || (down[falls - 1] === false && down[falls + 1] === false)) continue
+      const a = wall.points[stands]
+      const along = { x: wall.points[falls].x - a.x, y: wall.points[falls].y - a.y }
+      const meet = partner.walls
+        .map((w) => lineHit(a, along, w.points))
+        .filter((h) => h !== null && h.t >= 0 && h.t <= 1)
+        .sort((g, h) => g!.t - h!.t)[0]
+      if (!meet) continue
+      points[falls] = { x: a.x + along.x * meet.t, y: a.y + along.y * meet.t }
+      gone[falls] = false
+      splits.add(falls)
+    }
+    // A wall only stands clear of the partner lane past where the two part,
+    // as a divider between them. Run out past the partner lane's end, its
+    // mouth or exit, without meeting the partner's walls, it comes down
+    // too, and the lanes open into each other there.
+    let first = 0
+    for (let i = 0; i <= gone.length; i++) {
+      if (i < gone.length && !gone[i]) continue
+      const last = i - 1
+      const atEnd = first === 0 || last === gone.length - 1
+      const bordersDown = (first > 0 && gone[first - 1]) || (last + 1 < gone.length && gone[last + 1])
+      const parts = splits.has(first) || splits.has(last)
+      if (last >= first && atEnd && bordersDown && !parts) {
+        for (let k = first; k <= last; k++) {
+          gone[k] = true
+          ballOpen[k] = true
+        }
+      }
+      first = i + 1
+    }
+    const open = wall.open.map((o, i) => o || gone[i])
+    return { ...wall, points, ballOpen, restitution, flexPerSpeed, open, pieces: walledPieces(open) }
+  })
+  if (!reach.left.some((r) => r > 0) && !reach.right.some((r) => r > 0)) return own
+  const out = (side: WallSide) => own.walls[WALL_SIDES.findIndex((w) => w.side === side)].bulge
+  const ballReach = { left: eased(own.center, reach.left), right: eased(own.center, reach.right) }
+  const open = own.center.map((_, i) => laneWalls.every((w) => w.open[i]))
+  return {
+    ...own,
+    walls: laneWalls,
+    widths: own.widths.map((w, i) => w + ballReach.left[i] + ballReach.right[i]),
+    middle: midline(
+      own.center,
+      out('left').map((b, i) => b + ballReach.left[i]),
+      out('right').map((b, i) => b + ballReach.right[i]),
+    ),
+    open,
+    pieces: walledPieces(open),
+    shared: true,
   }
 }
 
@@ -971,18 +1137,19 @@ function track(id: number, own: Lane, feeders: { id: number; lane: Lane; backwar
       push({ x: a.p.x + (b.x - a.p.x) * f, y: a.p.y + (b.y - a.p.y) * f }, t, from + (width - from) * f, [true, true])
     }
   }
-  // Samples of a lane, in the order given, across open playfield from the last.
+  // Samples of a lane, in the order given, across open playfield from the
+  // last. The ball runs between the walls, along the line midway between them.
   const addLane = (id: number, lane: Lane, indices: number[], backward: boolean) => {
-    if (center.length > 0) crossTo(lane.center[indices[0]].p, lane.widths[indices[0]])
+    if (center.length > 0) crossTo(lane.middle[indices[0]].p, lane.widths[indices[0]])
     // A lane starting where the track left off, as one fed from right
     // where another ends does, shares that point.
     const last = center.at(-1)
-    const start = lane.center[indices[0]].p
+    const start = lane.middle[indices[0]].p
     const skip = last && Math.hypot(start.x - last.p.x, start.y - last.p.y) < 1e-9 ? 1 : 0
     const first = center.length
     for (const i of indices.slice(skip)) {
-      const { p, t } = lane.center[i]
-      const openOn = (offset: number) => wallOn(lane, backward ? -offset : offset).open[i]
+      const { p, t } = lane.middle[i]
+      const openOn = (offset: number) => wallOn(lane, backward ? -offset : offset).ballOpen[i]
       push(p, backward ? { x: -t.x, y: -t.y } : t, lane.widths[i], [openOn(-1), openOn(1)])
     }
     if (center.length > first) placed.push({ id, lane, first, last: center.length - 1, from: indices[skip], backward })
@@ -1098,7 +1265,9 @@ export function analyze(
   inflow: Inflow = { solved: solveFlippers(shot), feeders: [] },
   exitInflow: Inflow | null = shot.end === 'double' ? { solved: solveFlippers(shot, 'exit'), feeders: [] } : null,
 ): ShotAnalysis {
-  const lane = shapeLane(shot, inletOf(inflow), exitInflow && inletOf(exitInflow))
+  const shaped = shapeLane(shot, inletOf(inflow), exitInflow && inletOf(exitInflow))
+  const partner = shot.unionWith === null ? null : laneShapes().find((s) => s.id === shot.unionWith)?.lane.all()
+  const lane = shaped && joinLanes(shaped, partner ?? null)
   return withRuns(shot, lane, inflow, exitInflow)
 }
 
@@ -1181,7 +1350,25 @@ const laneShapes = createRoot(() => {
   )
   return createMemo(list)
 })
-setMadeLaneShapes(() => laneShapes)
+
+/**
+ * The lane shapes, each joined with the lane its shot shares walls with, as
+ * that one is shaped on its own.
+ */
+const joinedShapes = createRoot(() => {
+  const list = mapArray(laneShapes, (raw) => {
+    const join = (tier: 'all' | 'base') =>
+      createMemo(() => {
+        const own = raw.lane[tier]()
+        const partnerId = shots.find((s) => s.id === raw.id)?.unionWith ?? null
+        const partner = partnerId === null ? null : laneShapes().find((s) => s.id === partnerId)?.lane[tier]()
+        return own && joinLanes(own, partner ?? null)
+      })
+    return { ...raw, lane: { all: join('all'), base: join('base') } }
+  })
+  return createMemo(list)
+})
+setMadeLaneShapes(() => joinedShapes)
 
 /**
  * How the ball comes into one end of a shot's lane: off the flippers, or
@@ -1190,7 +1377,7 @@ setMadeLaneShapes(() => laneShapes)
  * shaped from those.
  */
 export function inflowOf(shot: Shot, end: ShotEnd = 'entrance', tier: 'all' | 'base' = 'all'): Inflow {
-  const shapes = laneShapes()
+  const shapes = joinedShapes()
   const shapeOf = (id: number) => shapes.find((s) => s.id === id)
   const chain = feedChain(shot, end)
   if (chain.length === 0)
@@ -1313,7 +1500,7 @@ function shotPathBack(shot: Shot, lane: Lane): Point[] | null {
 function fedSettings(feed: Feed): FedSettings | null {
   const shot = shots.find((s) => s.id === feed.id)
   if (!shot) return null
-  const lane = laneShapes()
+  const lane = joinedShapes()
     .find((s) => s.id === shot.id)
     ?.lane.base()
   // Out of the lane straight on from its end, back up it for a double-ended
@@ -1492,7 +1679,7 @@ export const shotAnalyses = createRoot(() => {
     () => shots,
     (shot) =>
       createMemo(() => {
-        const own = laneShapes().find((s) => s.id === shot.id)
+        const own = joinedShapes().find((s) => s.id === shot.id)
         if (!own) return analyze(shot)
         return withRuns(shot, own.lane.all(), inflowOf(shot), shot.end === 'double' ? inflowOf(shot, 'exit') : null)
       }),
@@ -1521,7 +1708,7 @@ export const laneCrossings = createRoot(() =>
     const add = (id: number, other: Shot) => crossed.set(id, [...(crossed.get(id) ?? []), other])
     flat.forEach((a, i) => {
       for (const b of flat.slice(i + 1)) {
-        const meant = feeds(a.shot, b.shot) || feeds(b.shot, a.shot)
+        const meant = feeds(a.shot, b.shot) || feeds(b.shot, a.shot) || a.shot.unionWith === b.shot.id
         if (meant || !outlinesOverlap(a.outlines, b.outlines)) continue
         add(a.shot.id, b.shot)
         add(b.shot.id, a.shot)

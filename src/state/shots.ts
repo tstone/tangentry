@@ -2,7 +2,7 @@ import { batch } from 'solid-js'
 import { createStore, produce } from 'solid-js/store'
 import { playfield } from './playfield'
 import { focusOn, focusedId, unfocus, unfocusPart } from './focus'
-import type { Continuity } from '../geometry/lane'
+import { NO_BOW, type Bow, type Continuity } from '../geometry/lane'
 import type { MountKind } from '../physics/wall'
 
 // All dimensions are in inches, angles in degrees.
@@ -121,6 +121,12 @@ export type Shot = {
   // How much of each wall is put up, cut short at either end so shots can
   // get past it.
   wallExtent: Record<WallSide, WallExtent>
+  // Each wall bowed out over a stretch of the lane, as a Bow.
+  bows: Record<WallSide, Bow>
+  // Another shot whose lane this one shares walls with, by id: where the two
+  // overlap, each wall inside the other lane comes down, and the ball runs
+  // out to the other lane's far wall instead. Null for none.
+  unionWith: number | null
 }
 
 // Where an open span starts and ends along the lane, as fractions of the
@@ -259,6 +265,8 @@ export const shotDefaults = (entrance: Entrance): Shot => ({
   horseshoe: { ...DEFAULT_HORSESHOE },
   openSpans: [],
   wallExtent: { left: { ...FULL_WALL }, right: { ...FULL_WALL } },
+  bows: { left: { ...NO_BOW }, right: { ...NO_BOW } },
+  unionWith: null,
 })
 
 type NewShot = Partial<Omit<Shot, 'id' | 'via' | 'mounts'>> & { via?: Entrance[] }
@@ -298,6 +306,7 @@ export function addShot(options: NewShot = {}) {
     id,
     horseshoe: { ...(options.horseshoe ?? DEFAULT_HORSESHOE) },
     exitOrigin: { ...(options.exitOrigin ?? DEFAULT_ORIGIN) },
+    bows: { left: { ...(options.bows?.left ?? NO_BOW) }, right: { ...(options.bows?.right ?? NO_BOW) } },
     via: (options.via ?? shape.via ?? []).map((p) => ({ id: nextViaId++, x: p.x, y: p.y, weight: 1 })),
     mounts: { left: defaultMounts(() => nextMountId++), right: defaultMounts(() => nextMountId++) },
   })
@@ -318,6 +327,7 @@ addShot({
 export function removeShot(id: number) {
   // A shot it fed is shot from the flippers again.
   stopFeeding(id)
+  setShots((shot) => shot.unionWith === id, 'unionWith', null)
   setShots((list) => list.filter((shot) => shot.id !== id))
   unfocus('shot', id)
 }
@@ -529,7 +539,55 @@ export function setWallEnd(id: number, side: WallSide, end: keyof WallExtent, at
   )
 }
 
+// Furthest a wall can bow out, or in, inches.
+export const MAX_BOW_DEPTH = 0.5
+// Shortest stretch a bow can span, as a fraction of the lane.
+export const MIN_BOW_SPAN = 0.05
+
+/**
+ * Change how one wall bows out, keeping its depth within range and its
+ * stretch on the lane and at least MIN_BOW_SPAN long.
+ */
+export function setBow(id: number, side: WallSide, changes: Partial<Bow>) {
+  setShots(
+    (s) => s.id === id,
+    'bows',
+    side,
+    produce((bow) => {
+      if (changes.depth !== undefined) bow.depth = Math.max(-MAX_BOW_DEPTH, Math.min(MAX_BOW_DEPTH, changes.depth))
+      const { from, to } = changes
+      if (from !== undefined && to !== undefined) {
+        // Moved together, the stretch keeps its length.
+        const span = Math.max(MIN_BOW_SPAN, to - from)
+        bow.from = Math.max(0, Math.min(1 - span, from))
+        bow.to = bow.from + span
+      } else if (from !== undefined) bow.from = Math.max(0, Math.min(from, bow.to - MIN_BOW_SPAN))
+      else if (to !== undefined) bow.to = Math.min(1, Math.max(to, bow.from + MIN_BOW_SPAN))
+    }),
+  )
+}
+
 /** Add a spike in the middle of the widest gap between a wall's mounts. */
+/**
+ * Have two shots' lanes share walls, or with null stop a shot sharing them.
+ * A shot shares with one other at most, so any partner either had before
+ * is let go.
+ */
+export function setUnion(id: number, partner: number | null) {
+  if (partner === id) return
+  const pair = partner === null ? [id] : [id, partner]
+  batch(() => {
+    setShots(
+      (shot) => pair.includes(shot.id) || (shot.unionWith !== null && pair.includes(shot.unionWith)),
+      'unionWith',
+      null,
+    )
+    if (partner === null) return
+    setShots((shot) => shot.id === id, 'unionWith', partner)
+    setShots((shot) => shot.id === partner, 'unionWith', id)
+  })
+}
+
 export function addMount(id: number, side: WallSide) {
   const shot = shots.find((s) => s.id === id)
   if (!shot) return

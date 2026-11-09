@@ -1463,6 +1463,16 @@ body {
   stroke-width: 2;
 }
 
+/* Its bow handle reshapes the wall's line, so it's drawn in the accent. */
+.shot-wall-bow {
+  fill: var(--accent);
+}
+
+.shot-wall-bow:hover {
+  stroke: var(--fg);
+  stroke-width: 2;
+}
+
 /* Shot solutions */
 .shot-state {
   display: flex;

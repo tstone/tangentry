@@ -7,7 +7,10 @@ import { playfield } from '../state/playfield'
 import {
   HORSESHOE_RADIUS,
   HORSESHOE_ROTATION,
+  MAX_BOW_DEPTH,
   addMount,
+  setBow,
+  setUnion,
   canLeaveBy,
   endPoint,
   endName,
@@ -550,6 +553,92 @@ function HorseshoeFields(props: { shot: Shot }) {
   )
 }
 
+/** How far each wall bows out, and over which stretch of the lane. */
+function WallBows(props: { shot: Shot }) {
+  const laneLength = () => selectedAnalysis()?.lane?.exitDistance ?? 0
+  const inches = (at: number) => at * laneLength()
+  const along = (d: number) => (laneLength() > 0 ? d / laneLength() : 0)
+  return (
+    <>
+      <h4 class="sidebar-heading">Bowed walls</h4>
+      <For each={WALL_SIDES}>
+        {({ side, label }) => {
+          const bow = () => props.shot.bows[side]
+          return (
+            <div class="wall-mount">
+              <SliderField
+                label={`${label} bow`}
+                min={-MAX_BOW_DEPTH}
+                max={MAX_BOW_DEPTH}
+                step={1 / 32}
+                centered
+                value={bow().depth}
+                format={(v) => (v !== 0 ? formatSigned(v) : 'none')}
+                ends={['in', 'out']}
+                onChange={(depth) => setBow(props.shot.id, side, { depth })}
+              />
+              <Show when={bow().depth !== 0}>
+                <SliderField
+                  label="Starts"
+                  min={0}
+                  max={Math.max(laneLength(), 0.01)}
+                  step={0.05}
+                  value={inches(bow().from)}
+                  format={(v) => `${formatInches(v)} from entrance`}
+                  onChange={(d) => setBow(props.shot.id, side, { from: along(d) })}
+                />
+                <SliderField
+                  label="Ends"
+                  min={0}
+                  max={Math.max(laneLength(), 0.01)}
+                  step={0.05}
+                  value={inches(bow().to)}
+                  format={(v) => `${formatInches(v)} from entrance`}
+                  onChange={(d) => setBow(props.shot.id, side, { to: along(d) })}
+                />
+              </Show>
+            </div>
+          )
+        }}
+      </For>
+      <p class="field-note">
+        A wall can swing out wide over a stretch of the lane, as on a ramp shot at an angle, to give the ball room to
+        turn into the bend, or in to pinch the lane. It eases out and back so the wall doesn't kink. Click a wall on
+        the playfield to drag its bow.
+      </p>
+    </>
+  )
+}
+
+/** Another shot whose lane this one shares walls with where the two overlap. */
+function SharedWalls(props: { shot: Shot }) {
+  const options = () => [
+    { label: 'None', value: 'none' },
+    ...shots.filter((s) => s.id !== props.shot.id).map((s) => ({ label: s.name, value: String(s.id) })),
+  ]
+  const partner = () => shots.find((s) => s.id === props.shot.unionWith) ?? null
+  return (
+    <>
+      <h4 class="sidebar-heading">Shared walls</h4>
+      <SelectField
+        label="Shares walls with"
+        options={options()}
+        value={props.shot.unionWith === null ? 'none' : String(props.shot.unionWith)}
+        onChange={(choice) => setUnion(props.shot.id, choice === 'none' ? null : Number(choice))}
+      />
+      <Show when={partner()}>
+        {(p) => (
+          <p class="field-note">
+            {selectedAnalysis()?.lane?.shared
+              ? `Where this lane and ${p().name} overlap, each wall inside the other lane comes down, so they're one lane in the middle. This lane's ball paths still run along its own center line, out to ${p().name}'s far wall; a ball crossing over to the other side of where they split isn't followed down that lane.`
+              : `This lane and ${p().name} don't overlap yet. Move them together and the walls inside each other come down.`}
+          </p>
+        )}
+      </Show>
+    </>
+  )
+}
+
 /** Stretches of the lane left without walls, as sketching makes them. */
 function OpenSpans(props: { shot: Shot }) {
   const laneLength = () => selectedAnalysis()?.lane?.exitDistance ?? 0
@@ -756,6 +845,10 @@ function ShotCard(props: { shot: Shot }) {
           onChange={(exitWeight) => updateShot(props.shot.id, { exitWeight })}
         />
         <LaneNotes shot={props.shot} />
+
+        <WallBows shot={props.shot} />
+
+        <SharedWalls shot={props.shot} />
 
         <details class="wall-mounts">
           <summary class="sidebar-heading">

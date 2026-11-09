@@ -79,7 +79,8 @@ type RampPiece = { points: Point[]; widths: [number, number]; left: boolean; rig
  * in a straight line from one end to the other.
  */
 function lanePieces(lane: Lane): RampPiece[] {
-  const { center, widths } = lane
+  // A ramp is laid along the line midway between its walls.
+  const { middle: center, widths } = lane
   const left = lane.walls.find((w) => w.side === 'left')!
   const right = lane.walls.find((w) => w.side === 'right')!
   // Which walls stand between each sample and the next.

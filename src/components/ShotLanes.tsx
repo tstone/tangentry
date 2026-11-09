@@ -2,6 +2,7 @@ import { For, Show, createMemo } from 'solid-js'
 import { playfield } from '../state/playfield'
 import {
   selectedId,
+  setBow,
   setSelectedId,
   setWallEnd,
   shots,
@@ -16,7 +17,7 @@ import { reservedCrossedBy } from '../state/reserved'
 import { hoveredShot } from '../state/view'
 import type { Point } from '../geometry/flipper'
 import { focusOn, focusedPart, type WallPart } from '../state/focus'
-import { unit } from '../geometry/lane'
+import { normal, unit, type CurveSample } from '../geometry/lane'
 import { clickUnlessDragged, startDrag } from './drag'
 import { ArrowHandle } from './ShotMarkers'
 
@@ -244,6 +245,69 @@ export function WallEndSliders() {
   )
 }
 
+/**
+ * A handle at the middle of a wall's bow, or where it would be on a wall
+ * with none. Dragging it out from the lane bows the wall out that far;
+ * dragging it along the lane moves the bow, keeping its length.
+ */
+function BowHandle(props: { shot: Shot; side: WallSide; label: string }) {
+  const lane = () => shotAnalyses().find((a) => a.id === props.shot.id)?.lane
+  const offset = WALL_SIDES.find((w) => w.side === props.side)!.offset
+  // The wall at center line sample `i`: where it would stand unbowed, and the way out from the lane.
+  const wallAt = (i: number) => {
+    const l = lane()!
+    const wall = l.walls.find((w) => w.side === props.side)!
+    const out = normal(l.center[i].t)
+    const outward = { x: out.x * offset, y: out.y * offset }
+    const p = wall.points[i]
+    const bulge = wall.bulge[i]
+    return { base: { x: p.x - outward.x * bulge, y: p.y - outward.y * bulge }, outward, at: p }
+  }
+  // Center line sample nearest `s` along it, or nearest the point `p`, up to the exit.
+  const nearest = (score: (q: CurveSample) => number) => {
+    const l = lane()!
+    let best = 0
+    l.center.forEach((q, i) => {
+      if (q.s <= l.exitDistance && score(q) < score(l.center[best])) best = i
+    })
+    return best
+  }
+  const peak = () => {
+    const l = lane()
+    if (!l) return null
+    const bow = props.shot.bows[props.side]
+    const s = ((bow.from + bow.to) / 2) * l.exitDistance
+    return wallAt(nearest((q) => Math.abs(q.s - s)))
+  }
+  const drag = (event: PointerEvent) => {
+    startDrag(event, (p) => {
+      const l = lane()
+      if (!l || l.exitDistance <= 0) return
+      const svg = { x: p.x, y: playfield.height - p.y }
+      const i = nearest((q) => Math.hypot(q.p.x - svg.x, q.p.y - svg.y))
+      const { base, outward } = wallAt(i)
+      const depth = (svg.x - base.x) * outward.x + (svg.y - base.y) * outward.y
+      const bow = props.shot.bows[props.side]
+      const half = (bow.to - bow.from) / 2
+      const middle = l.center[i].s / l.exitDistance
+      setBow(props.shot.id, props.side, { depth: Math.round(depth * 32) / 32, from: middle - half, to: middle + half })
+    })
+  }
+  return (
+    <Show when={peak()}>
+      {(k) => (
+        <ArrowHandle
+          class="shot-wall-bow"
+          at={k().at}
+          along={k().outward}
+          onPointerDown={drag}
+          title={`${props.shot.name} ${props.label.toLowerCase()} bow: drag out or in to bow the wall, along to move the bow`}
+        />
+      )}
+    </Show>
+  )
+}
+
 function WallEnds(props: { shot: Shot; side: WallSide; label: string }) {
   const wall = () => solvedWall(props.shot.id, props.side)
   const ENDS: { end: keyof WallExtent; name: string }[] = [
@@ -264,6 +328,7 @@ function WallEnds(props: { shot: Shot; side: WallSide; label: string }) {
               />
             )}
           </For>
+          <BowHandle shot={props.shot} side={props.side} label={props.label} />
           <For each={ENDS}>
             {({ end, name }) => {
               const place = () => pointAlong(w(), props.shot.wallExtent[props.side][end])
