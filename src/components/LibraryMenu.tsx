@@ -4,10 +4,12 @@ import { Menu } from '@ark-ui/solid/menu'
 import { importProject } from '../state/project'
 import { log } from '../state/log'
 import aiq from '../library/aiq.json?raw'
+import b60 from '../library/b60.json?raw'
 
 // Ready-made designs to start from, each a project file.
 const DESIGNS: { value: string; label: string; hint: string; json: string }[] = [
   { value: 'aiq', label: 'AIQ', hint: 'Replaces the current design', json: aiq },
+  { value: 'b60', label: 'B60', hint: 'Replaces the current design', json: b60 },
 ]
 
 /** Toolbar button opening a menu of ready-made designs; picking one replaces the project (undoable). */
